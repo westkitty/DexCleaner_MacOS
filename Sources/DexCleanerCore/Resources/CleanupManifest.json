@@ -1,0 +1,101 @@
+{
+  "version": "0.3.0",
+  "name": "DexCleaner cleanup manifest",
+  "policy": "Exact canonical allowlist only. Safe entries may be moved to Finder Trash after preview. Caution, Audit only, Forbidden, and Protected entries are visible for audit but never selectable.",
+  "safeExactTargets": [
+    {
+      "id": "homebrew-cache",
+      "relativePath": "Library/Caches/Homebrew",
+      "displayName": "Homebrew cache",
+      "group": "Homebrew",
+      "category": "Package manager cache",
+      "risk": "Safe",
+      "explanation": "Homebrew download and build cache. Regeneratable by Homebrew.",
+      "recoveryNote": "Homebrew will download packages again when needed.",
+      "defaultSelected": false
+    },
+    {
+      "id": "pip-cache",
+      "relativePath": "Library/Caches/pip",
+      "displayName": "pip cache",
+      "group": "Python",
+      "category": "Package manager cache",
+      "risk": "Safe",
+      "explanation": "pip wheel and HTTP cache. Regeneratable.",
+      "recoveryNote": "pip will re-download packages when needed.",
+      "defaultSelected": false
+    },
+    {
+      "id": "swiftpm-cache",
+      "relativePath": "Library/Caches/org.swift.swiftpm",
+      "displayName": "Swift Package Manager cache",
+      "group": "Swift",
+      "category": "Developer cache",
+      "risk": "Safe",
+      "explanation": "SwiftPM package cache. Regeneratable.",
+      "recoveryNote": "SwiftPM will resolve and fetch packages again.",
+      "defaultSelected": false
+    },
+    {
+      "id": "vscode-cache",
+      "relativePath": "Library/Application Support/Code/Cache",
+      "displayName": "VS Code runtime cache",
+      "group": "VS Code",
+      "category": "Exact cache",
+      "risk": "Safe",
+      "explanation": "VS Code runtime cache only, not workspace or global state.",
+      "recoveryNote": "VS Code will regenerate runtime cache after launch.",
+      "defaultSelected": false
+    },
+    {
+      "id": "xcode-derived-data",
+      "relativePath": "Library/Developer/Xcode/DerivedData",
+      "displayName": "Xcode DerivedData",
+      "group": "Xcode",
+      "category": "Developer cache",
+      "risk": "Caution",
+      "explanation": "Large Xcode build artifacts. Visible for review but not selected automatically.",
+      "recoveryNote": "Xcode can rebuild this, but rebuilds may be slow.",
+      "defaultSelected": false
+    },
+    {
+      "id": "cloudstorage-audit",
+      "relativePath": "Library/CloudStorage",
+      "displayName": "Cloud storage root",
+      "group": "Cloud Storage",
+      "category": "Cloud storage",
+      "risk": "Forbidden",
+      "explanation": "Cloud storage is audit/protected only.",
+      "recoveryNote": "Manage local copies through the cloud provider or Finder manually.",
+      "defaultSelected": false
+    }
+  ],
+  "forbiddenFragments": [
+    "/.cache",
+    "/.antigravity",
+    "/.antigravity_archive",
+    "/Antigravity",
+    "/Local Storage",
+    "/Session Storage",
+    "/IndexedDB",
+    "/Service Worker",
+    "/User/globalStorage",
+    "/User/workspaceStorage",
+    "/User/History",
+    "/Library/Keychains",
+    "/Library/CloudStorage",
+    "/iCloud Drive",
+    "/Dropbox",
+    "/OneDrive",
+    "/Google Drive",
+    "/Library/Application Support/BraveSoftware",
+    "/Library/Application Support/Google/DriveFS",
+    "/Library/Application Support/Google/Chrome",
+    "/Library/Application Support/Claude/vm_bundles",
+    "/Projects",
+    "/Documents",
+    "/Downloads",
+    "/Movies",
+    "/Pictures"
+  ]
+}
