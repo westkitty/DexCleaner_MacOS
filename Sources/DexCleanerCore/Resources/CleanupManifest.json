@@ -1,5 +1,5 @@
 {
-  "version": "0.3.0",
+    "version": "0.4.0",
   "name": "DexCleaner cleanup manifest",
   "policy": "Exact canonical allowlist only. Safe entries may be moved to Finder Trash after preview. Caution, Audit only, Forbidden, and Protected entries are visible for audit but never selectable.",
   "safeExactTargets": [
@@ -25,19 +25,107 @@
       "recoveryNote": "pip will re-download packages when needed.",
       "defaultSelected": false
     },
-    {
-      "id": "swiftpm-cache",
-      "relativePath": "Library/Caches/org.swift.swiftpm",
+        {
+            "id": "swiftpm-cache",
+            "relativePath": "Library/Caches/org.swift.swiftpm",
       "displayName": "Swift Package Manager cache",
       "group": "Swift",
       "category": "Developer cache",
       "risk": "Safe",
       "explanation": "SwiftPM package cache. Regeneratable.",
-      "recoveryNote": "SwiftPM will resolve and fetch packages again.",
-      "defaultSelected": false
-    },
-    {
-      "id": "vscode-cache",
+            "recoveryNote": "SwiftPM will resolve and fetch packages again.",
+            "defaultSelected": false
+        },
+        {
+            "id": "npm-cache",
+            "relativePath": "Library/Caches/npm",
+            "displayName": "npm cache",
+            "group": "Node",
+            "category": "Package manager cache",
+            "risk": "Safe",
+            "explanation": "npm package tarball and metadata cache. Regeneratable.",
+            "recoveryNote": "npm will re-download packages when needed.",
+            "defaultSelected": false
+        },
+        {
+            "id": "pnpm-cache",
+            "relativePath": "Library/Caches/pnpm",
+            "displayName": "pnpm cache",
+            "group": "JavaScript",
+            "category": "Package manager cache",
+            "risk": "Safe",
+            "explanation": "pnpm cache under the macOS cache directory. Regeneratable.",
+            "recoveryNote": "pnpm will re-download packages when needed.",
+            "defaultSelected": false
+        },
+        {
+            "id": "yarn-cache",
+            "relativePath": "Library/Caches/Yarn",
+            "displayName": "Yarn cache",
+            "group": "JavaScript",
+            "category": "Package manager cache",
+            "risk": "Safe",
+            "explanation": "Yarn package cache under the macOS cache directory. Regeneratable.",
+            "recoveryNote": "Yarn will re-download packages when needed.",
+            "defaultSelected": false
+        },
+        {
+            "id": "cocoapods-cache",
+            "relativePath": "Library/Caches/CocoaPods",
+            "displayName": "CocoaPods cache",
+            "group": "CocoaPods",
+            "category": "Package manager cache",
+            "risk": "Safe",
+            "explanation": "CocoaPods download cache. Regeneratable.",
+            "recoveryNote": "CocoaPods will download pods again when needed.",
+            "defaultSelected": false
+        },
+        {
+            "id": "gradle-cache",
+            "relativePath": "Library/Caches/Gradle",
+            "displayName": "Gradle cache",
+            "group": "Gradle",
+            "category": "Package manager cache",
+            "risk": "Safe",
+            "explanation": "Gradle cache under the macOS cache directory. Regeneratable.",
+            "recoveryNote": "Gradle will download dependencies again when needed.",
+            "defaultSelected": false
+        },
+        {
+            "id": "xcode-cache",
+            "relativePath": "Library/Caches/com.apple.dt.Xcode",
+            "displayName": "Xcode cache",
+            "group": "Xcode",
+            "category": "Developer cache",
+            "risk": "Safe",
+            "explanation": "Xcode cache under the macOS cache directory. Regeneratable.",
+            "recoveryNote": "Xcode will rebuild cache data when needed.",
+            "defaultSelected": false
+        },
+        {
+            "id": "xcode-module-cache",
+            "relativePath": "Library/Developer/Xcode/DerivedData/ModuleCache.noindex",
+            "displayName": "Xcode module cache",
+            "group": "Xcode",
+            "category": "Developer cache",
+            "risk": "Safe",
+            "explanation": "Xcode module cache inside DerivedData. Regeneratable compiler cache.",
+            "recoveryNote": "Xcode will rebuild module cache data during future builds.",
+            "defaultSelected": false
+        },
+        {
+            "id": "simulator-cache",
+            "relativePath": "Library/Developer/CoreSimulator/Caches",
+            "displayName": "CoreSimulator cache",
+            "group": "Simulator",
+            "category": "Developer cache",
+            "risk": "Safe",
+            "explanation": "CoreSimulator cache directory. Regeneratable by Simulator and Xcode.",
+            "recoveryNote": "Simulator and Xcode will recreate cache data when needed.",
+            "defaultSelected": false
+        },
+        {
+            "id": "vscode-cache",
       "relativePath": "Library/Application Support/Code/Cache",
       "displayName": "VS Code runtime cache",
       "group": "VS Code",

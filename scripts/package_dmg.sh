@@ -9,7 +9,7 @@ DIST="$ROOT/.build/dist"
 DMG="$DIST/DexCleaner.dmg"
 VOLUME="DexCleaner"
 
-./scripts/build_app_bundle.sh
+bash ./scripts/build_app_bundle.sh
 
 if ! command -v hdiutil >/dev/null 2>&1; then
   echo "hdiutil is required to build a DMG. Run this on macOS." >&2

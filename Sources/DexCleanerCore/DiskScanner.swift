@@ -2,7 +2,7 @@ import Foundation
 
 public struct DiskScanner {
     public let home: String
-    public let appVersion = "0.3.0"
+    public let appVersion = "0.4.0"
     private let cache: ScanCache
 
     public init(home: String = NSHomeDirectory(), cache: ScanCache? = nil) {

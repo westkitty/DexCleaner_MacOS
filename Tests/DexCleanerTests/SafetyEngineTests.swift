@@ -135,6 +135,9 @@ final class ResearchLedFeatureTests: XCTestCase {
         XCTAssertFalse(CleanupCatalog.cleanableEntries.isEmpty)
         XCTAssertTrue(CleanupCatalog.exactSafeEntries.contains { $0.risk == .caution })
         XCTAssertTrue(CleanupCatalog.exactSafeEntries.contains { $0.id == "xcode-derived-data" })
+        XCTAssertTrue(CleanupCatalog.cleanableEntries.contains { $0.id == "npm-cache" })
+        XCTAssertTrue(CleanupCatalog.cleanableEntries.contains { $0.id == "xcode-module-cache" })
+        XCTAssertTrue(CleanupCatalog.cleanableEntries.contains { $0.id == "simulator-cache" })
         XCTAssertTrue(CleanupCatalog.exactSafeEntries.allSatisfy { !$0.id.isEmpty && !$0.group.isEmpty && !$0.recoveryNote.isEmpty })
     }
 
