@@ -1,4 +1,4 @@
-.PHONY: build run test app dmg audit preview bug-sweep clean
+.PHONY: build run test app dmg audit preview bug-sweep
 
 build:
 	swift build
@@ -10,16 +10,16 @@ test:
 	swift test
 
 app:
-	./scripts/build_app_bundle.sh
+	bash scripts/build_app_bundle.sh
 
 dmg:
-	./scripts/package_dmg.sh
+	bash scripts/package_dmg.sh
 
 audit:
-	./scripts/audit_read_only.sh
+	bash scripts/audit_read_only.sh
 
 preview:
-	./scripts/safe_cleanup_preview.sh
+	bash scripts/safe_cleanup_preview.sh
 
 bug-sweep:
 	swift test
@@ -29,6 +29,3 @@ bug-sweep:
 	bash -n scripts/*.sh
 	! grep -RIn "\.skipsHiddenFiles" Sources/DexCleanerCore
 	! grep -RIn "FileManager.default.removeItem" Sources
-
-clean:
-	rm -rf .build
