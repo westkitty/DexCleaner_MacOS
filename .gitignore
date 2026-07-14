@@ -1,5 +1,7 @@
 .build/
-DerivedData/
-*.xcuserdata/
+.swiftpm/
 .DS_Store
-DexCleaner.app/
+*.dmg
+*.dmg.sha256
+xcuserdata/
+DerivedData/

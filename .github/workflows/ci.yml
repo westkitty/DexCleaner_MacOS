@@ -1,0 +1,37 @@
+name: DexCleaner CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  core-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Swift version
+        run: swift --version
+      - name: Full deterministic bug sweep
+        run: make bug-sweep
+      - name: Release-mode tests
+        run: swift test -c release
+
+  app-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Swift version
+        run: swift --version
+      - name: Tests
+        run: swift test
+      - name: Build executable
+        run: swift build --product DexCleaner
+      - name: Build and verify app bundle
+        run: |
+          bash scripts/build_app_bundle.sh
+          plutil -lint .build/DexCleaner.app/Contents/Info.plist
+          test -n "$(find .build/DexCleaner.app/Contents/Resources -maxdepth 1 -type d \( -name '*DexCleanerCore.resources' -o -name '*DexCleanerCore.bundle' \) -print -quit)"
+          codesign --verify --deep --strict .build/DexCleaner.app

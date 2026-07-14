@@ -11,66 +11,71 @@ public struct SafetyDecision: Hashable, Sendable {
 }
 
 public enum SafetyEngine {
-    public static let gitTempPackMinimumAge: TimeInterval = 10 * 60
-
-    public static func decision(
-        for item: ScanItem,
-        home: String = NSHomeDirectory(),
-        gitProcessChecker: () -> Bool = gitProcessIsRunning
-    ) -> SafetyDecision {
+    public static func decision(for item: ScanItem, home: String = NSHomeDirectory()) -> SafetyDecision {
+        guard CleanupCatalog.isAvailable else {
+            return SafetyDecision(allowed: false, reason: "Cleanup authority manifest is unavailable or invalid.")
+        }
         let path = lexicalNormalize(item.path)
         let homePath = lexicalNormalize(home)
 
-        if item.action != .moveToTrash {
-            return SafetyDecision(allowed: false, reason: "Audit-only item cannot be cleaned.")
-        }
-
-        if item.risk != .safe {
-            return SafetyDecision(allowed: false, reason: "Only Safe items can be moved to Trash.")
-        }
-
-        if path == homePath || path == "/" {
-            return SafetyDecision(allowed: false, reason: "Refusing home or root path.")
-        }
-
-        guard path == homePath || path.hasPrefix(homePath + "/") else {
-            return SafetyDecision(allowed: false, reason: "Path is outside the current user's home directory.")
-        }
-
-        if item.category == .gitTemporaryPack {
-            return gitTemporaryPackDecision(path: path, home: homePath, gitProcessChecker: gitProcessChecker)
-        }
+        guard item.action == .moveToTrash else { return SafetyDecision(allowed: false, reason: "Audit-only item cannot be cleaned.") }
+        guard item.risk == .safe else { return SafetyDecision(allowed: false, reason: "Only Safe items can be moved to Trash.") }
+        guard path != homePath && path != "/" else { return SafetyDecision(allowed: false, reason: "Refusing home or root path.") }
+        guard path.hasPrefix(homePath + "/") else { return SafetyDecision(allowed: false, reason: "Path is outside the current user's home directory.") }
 
         let broadRoots = [
-            homePath + "/.cache",
-            homePath + "/Library/Caches",
-            homePath + "/Library/Application Support",
-            homePath + "/Library",
-            homePath + "/Projects",
-            homePath + "/Documents",
-            homePath + "/Downloads",
-            homePath + "/Movies",
-            homePath + "/Pictures",
-            homePath + "/Desktop"
+            homePath + "/.cache", homePath + "/Library/Caches", homePath + "/Library/Application Support",
+            homePath + "/Library", homePath + "/Projects", homePath + "/Developer",
+            homePath + "/Documents", homePath + "/Downloads", homePath + "/Movies",
+            homePath + "/Pictures", homePath + "/Desktop"
         ]
-        if broadRoots.contains(path) {
-            return SafetyDecision(allowed: false, reason: "Refusing broad root path.")
-        }
+        guard !broadRoots.contains(path) else { return SafetyDecision(allowed: false, reason: "Refusing broad root path.") }
 
         for fragment in CleanupCatalog.forbiddenFragments where path.contains(fragment) {
-            return SafetyDecision(allowed: false, reason: "Protected state/session/user-data path: \(fragment)")
+            return SafetyDecision(allowed: false, reason: "Protected state, session, cloud, project, or user-data path: \(fragment)")
         }
-
-        if containsSymlinkComponent(path: path, home: homePath) {
-            return SafetyDecision(allowed: false, reason: "Refusing path with symlink component. Exact cleanup targets must not redirect elsewhere.")
+        guard !containsSymlinkComponent(path: path, home: homePath) else {
+            return SafetyDecision(allowed: false, reason: "Refusing path with a symlink component.")
         }
-
-        let allowedPaths = CleanupCatalog.exactAllowedPaths(home: homePath)
-        guard allowedPaths.contains(path) else {
+        guard CleanupCatalog.exactAllowedPaths(home: homePath).contains(path) else {
             return SafetyDecision(allowed: false, reason: "Path is not an exact manifest allowlist target.")
         }
+        guard FileManager.default.fileExists(atPath: path) else {
+            return SafetyDecision(allowed: false, reason: "Target no longer exists.")
+        }
+        guard FileIdentity.capture(path: path) != nil else {
+            return SafetyDecision(allowed: false, reason: "Target identity could not be read.")
+        }
+        return SafetyDecision(allowed: true, reason: "Exact manifest-approved regeneratable cache path.")
+    }
 
-        return SafetyDecision(allowed: true, reason: "Exact manifest-approved cache path.")
+    public static func decision(for planItem: CleanupPlanItem, home: String = NSHomeDirectory()) -> SafetyDecision {
+        guard let entry = CleanupCatalog.entry(forManifestID: planItem.manifestID) else {
+            return SafetyDecision(allowed: false, reason: "Manifest entry no longer exists.")
+        }
+        let expectedPath = CleanupCatalog.exactPath(for: entry, home: home)
+        guard lexicalNormalize(planItem.path) == expectedPath else {
+            return SafetyDecision(allowed: false, reason: "Manifest ID and exact target path no longer match.")
+        }
+        let item = ScanItem(
+            manifestID: entry.id,
+            path: planItem.path,
+            displayName: planItem.displayName,
+            group: entry.group,
+            category: entry.category,
+            risk: entry.risk,
+            sizeBytes: planItem.sizeBytes,
+            explanation: entry.explanation,
+            recoveryNote: entry.recoveryNote,
+            action: entry.action,
+            isSelected: true
+        )
+        let base = decision(for: item, home: home)
+        guard base.allowed else { return base }
+        guard let current = FileIdentity.capture(path: planItem.path), current == planItem.identity else {
+            return SafetyDecision(allowed: false, reason: "Target identity changed after preview. Run a new scan and preview.")
+        }
+        return SafetyDecision(allowed: true, reason: "Previewed target identity and manifest authority still match.")
     }
 
     public static func lexicalNormalize(_ path: String) -> String {
@@ -82,73 +87,13 @@ public enum SafetyEngine {
         let normalizedPath = lexicalNormalize(path)
         let normalizedHome = lexicalNormalize(home)
         guard normalizedPath.hasPrefix(normalizedHome + "/") else { return true }
-
         let relative = String(normalizedPath.dropFirst(normalizedHome.count + 1))
         guard !relative.isEmpty else { return false }
-
         var current = URL(fileURLWithPath: normalizedHome)
         for component in relative.split(separator: "/").map(String.init) {
             current.appendPathComponent(component)
-            if (try? FileManager.default.destinationOfSymbolicLink(atPath: current.path)) != nil {
-                return true
-            }
+            if (try? FileManager.default.destinationOfSymbolicLink(atPath: current.path)) != nil { return true }
         }
         return false
-    }
-
-    public static func gitTemporaryPackDecision(
-        path: String,
-        home: String,
-        gitProcessChecker: () -> Bool
-    ) -> SafetyDecision {
-        guard path.hasPrefix(home + "/") else {
-            return SafetyDecision(allowed: false, reason: "Git temporary pack is outside the current user's home directory.")
-        }
-
-        guard !containsSymlinkComponent(path: path, home: home) else {
-            return SafetyDecision(allowed: false, reason: "Refusing Git temporary pack with symlink component.")
-        }
-
-        let url = URL(fileURLWithPath: path)
-        let packDirectory = url.deletingLastPathComponent()
-        let objectsDirectory = packDirectory.deletingLastPathComponent()
-        let gitDirectory = objectsDirectory.deletingLastPathComponent()
-
-        guard url.lastPathComponent.hasPrefix("tmp_pack_") else {
-            return SafetyDecision(allowed: false, reason: "Git temp-pack filename must start with tmp_pack_.")
-        }
-        guard packDirectory.lastPathComponent == "pack",
-              objectsDirectory.lastPathComponent == "objects",
-              gitDirectory.lastPathComponent == ".git" else {
-            return SafetyDecision(allowed: false, reason: "Git temp-pack file must be directly under .git/objects/pack/.")
-        }
-
-        guard let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .contentModificationDateKey]), values.isRegularFile == true else {
-            return SafetyDecision(allowed: false, reason: "Git temp-pack candidate is not a regular file.")
-        }
-
-        if let modified = values.contentModificationDate, Date().timeIntervalSince(modified) < gitTempPackMinimumAge {
-            return SafetyDecision(allowed: false, reason: "Git temp-pack file is too recent; it may belong to an active operation.")
-        }
-
-        if packDirectoryContainsLockFile(packDirectory) {
-            return SafetyDecision(allowed: false, reason: "Git pack directory contains a lock file. Try again later.")
-        }
-
-        if gitProcessChecker() {
-            return SafetyDecision(allowed: false, reason: "Git process is running. Try again later.")
-        }
-
-        return SafetyDecision(allowed: true, reason: "Strictly validated abandoned Git tmp_pack file.")
-    }
-
-    public static func packDirectoryContainsLockFile(_ directory: URL) -> Bool {
-        guard let names = try? FileManager.default.contentsOfDirectory(atPath: directory.path) else { return false }
-        return names.contains { $0.hasSuffix(".lock") }
-    }
-
-    public static func gitProcessIsRunning() -> Bool {
-        let result = Shell.run("/usr/bin/pgrep", ["-f", "[g]it|[g]it-remote|[g]it-lfs"], timeout: 3)
-        return result.status == 0
     }
 }

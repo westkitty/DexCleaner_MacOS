@@ -1,18 +1,17 @@
-import Foundation
-import DexCleanerCore
-import SwiftUI
 import AppKit
-import ServiceManagement
+import DexCleanerCore
+import Foundation
+import SwiftUI
 
 enum OperationPhase: String, CaseIterable {
     case idle = "Ready"
     case scanning = "Scanning"
-    case previewing = "Previewing"
+    case reviewing = "Review"
+    case previewed = "Preview authorized"
     case cleaning = "Moving to Trash"
-    case refreshing = "Refreshing"
-    case reporting = "Writing report"
     case cancelled = "Cancelled"
     case complete = "Complete"
+    case failed = "Needs attention"
 }
 
 enum CleanupProfile: String, CaseIterable, Identifiable {
@@ -20,7 +19,6 @@ enum CleanupProfile: String, CaseIterable, Identifiable {
     case appleDevelopment = "Apple Dev"
     case packageManagers = "Packages"
     case appCaches = "App Caches"
-    case git = "Git"
 
     var id: String { rawValue }
 
@@ -34,17 +32,14 @@ enum CleanupProfile: String, CaseIterable, Identifiable {
             return ["Homebrew", "Python", "Node", "JavaScript", "Gradle", "CocoaPods"].contains(item.group)
         case .appCaches:
             return item.category == .exactCache
-        case .git:
-            return item.category == .gitTemporaryPack || item.group == "Git"
         }
     }
 }
 
 enum ScanSortMode: String, CaseIterable, Identifiable {
     case largestFirst = "Largest"
-    case group = "Group"
+    case name = "Name"
     case risk = "Risk"
-
     var id: String { rawValue }
 }
 
@@ -56,202 +51,248 @@ final class AppModel: ObservableObject {
     @Published var storageSummaries: [StorageSummaryItem] = []
     @Published var permissionDiagnostics: [PermissionDiagnostic] = []
     @Published var warnings: [String] = []
-    @Published var statusText = "Ready. Scan is read-only."
+    @Published var scanIssues: [ScanIssue] = []
+    @Published var scanCompleteness: ScanCompleteness = .notRun
+    @Published var statusText = "Ready. Scan starts only when requested."
+    @Published var reportStatusText = "No report written in this session."
     @Published var isWorking = false
     @Published var lastReportURL: URL?
-    @Published var fullDiskAccessStatus = "Unknown"
+    @Published var accessStatus = "Not tested"
     @Published var scanDurationSeconds: TimeInterval = 0
     @Published var phase: OperationPhase = .idle
-    @Published var progress: Double = 0
-    @Published var progressDetail = "No scan has run yet."
-    @Published var activeProfile: CleanupProfile = .all
+    @Published var activeProfile: CleanupProfile = .all {
+        didSet {
+            guard oldValue != activeProfile else { return }
+            clearSelection(reason: "Profile changed. Previous selection was cleared to prevent hidden cleanup targets.")
+        }
+    }
     @Published var sortMode: ScanSortMode = .largestFirst
+    @Published var searchText = ""
     @Published var reportDestinationDirectory: URL?
-    @Published var backgroundScanningEnabled = false
-    @Published var launchAtLoginEnabled = SMAppService.mainApp.status == .enabled
+    @Published var reportFormat: ReportFormat = .markdown
+    @Published var pathRedaction: PathRedactionMode = .homeRelative
+    @Published var excludedLargeFileRootsText = ""
     @Published var lastTrashBytes: Int64 = 0
-    @Published var permissionRequestSummary = "Full Disk Access has not been requested in this session."
+    @Published var cleanupPlan: CleanupPlan?
+    @Published var lastCompletedPlan: CleanupPlan?
+    @Published var lastLedgerURL: URL?
 
     private var activeTask: Task<Void, Never>?
-    private var backgroundTimer: Timer?
-    private let scanner = DiskScanner()
+    private var authorization = PreviewAuthorization()
+    private var lastReportMode: ReportMode = .scan
     private let runner = CleanupRunner()
 
+    var allCleanableItems: [ScanItem] {
+        sorted(items.filter { $0.action == .moveToTrash })
+    }
+
     var cleanableItems: [ScanItem] {
-        sorted(items.filter { $0.action == .moveToTrash && activeProfile.includes($0) })
+        sorted(items.filter { item in
+            item.action == .moveToTrash && activeProfile.includes(item) && matchesSearch(item)
+        })
     }
 
     var auditItems: [ScanItem] {
-        sorted(items.filter { $0.action == .auditOnly && $0.category != .protected && $0.category != .cloudStorage })
+        sorted(items.filter {
+            $0.action == .auditOnly && $0.category != .protected && $0.category != .cloudStorage && $0.risk != .forbidden && matchesSearch($0)
+        })
     }
 
     var protectedItems: [ScanItem] {
-        sorted(items.filter { $0.category == .protected || $0.category == .cloudStorage || $0.risk == .forbidden })
+        sorted(items.filter {
+            ($0.category == .protected || $0.category == .cloudStorage || $0.risk == .forbidden) && matchesSearch($0)
+        })
     }
 
-    var selectedItems: [ScanItem] { items.filter { $0.isSelected } }
-
-    var selectedBytes: Int64 {
-        selectedItems.reduce(0) { $0 + $1.sizeBytes }
-    }
-
-    var cleanableBytes: Int64 {
-        cleanableItems.reduce(0) { $0 + $1.sizeBytes }
-    }
-
-    var auditBytes: Int64 {
-        auditItems.reduce(0) { $0 + $1.sizeBytes }
-    }
-
-    var protectedBytes: Int64 {
-        protectedItems.reduce(0) { $0 + $1.sizeBytes }
-    }
-
-    var selectedSizeText: String {
-        ByteCountFormatter.string(fromByteCount: selectedBytes, countStyle: .file)
-    }
-
-    var cleanableSizeText: String {
-        ByteCountFormatter.string(fromByteCount: cleanableBytes, countStyle: .file)
-    }
-
-    var lastTrashSizeText: String {
-        ByteCountFormatter.string(fromByteCount: lastTrashBytes, countStyle: .file)
+    var selectedItems: [ScanItem] { sorted(items.filter { $0.isSelected }) }
+    var selectedBytes: Int64 { selectedItems.reduce(0) { $0 + $1.sizeBytes } }
+    var cleanableBytes: Int64 { allCleanableItems.reduce(0) { $0 + $1.sizeBytes } }
+    var auditBytes: Int64 { auditItems.reduce(0) { $0 + $1.sizeBytes } }
+    var selectedSizeText: String { ByteCountFormatter.string(fromByteCount: selectedBytes, countStyle: .file) }
+    var cleanableSizeText: String { ByteCountFormatter.string(fromByteCount: cleanableBytes, countStyle: .file) }
+    var lastTrashSizeText: String { ByteCountFormatter.string(fromByteCount: lastTrashBytes, countStyle: .file) }
+    var canClean: Bool { !isWorking && authorization.isValid(items: items, plan: cleanupPlan) }
+    var manifestAuthorityText: String {
+        CleanupCatalog.isAvailable ? "Manifest \(CleanupCatalog.policyVersion) · \(CleanupCatalog.manifestChecksum)" : "Cleanup disabled: manifest invalid"
     }
 
     func scan() {
-        activeTask?.cancel()
+        guard !isWorking else {
+            statusText = "Another operation is still finishing."
+            return
+        }
+        invalidatePreview()
         cleanupResults = []
-        statusText = "Scanning..."
+        lastTrashBytes = 0
+        lastReportMode = .scan
+        statusText = "Scanning read-only targets and audit areas…"
         phase = .scanning
-        progress = 0.08
-        progressDetail = "Reading exact manifest targets and disk pressure."
         isWorking = true
-        let scannerHome = scanner.home
+        let roots = parsedExcludedRoots
+        let home = NSHomeDirectory()
+
         activeTask = Task {
-            let snapshot = await Task.detached(priority: .userInitiated) {
-                DiskScanner(home: scannerHome).scan()
-            }.value
-            if Task.isCancelled { return }
-            progress = 0.82
-            progressDetail = "Sorting scan findings by reclaimable impact."
+            defer {
+                isWorking = false
+                activeTask = nil
+            }
+            let worker = Task.detached(priority: .userInitiated) {
+                DiskScanner(home: home, excludedLargeFileRelativePaths: roots).scan()
+            }
+            let snapshot = await withTaskCancellationHandler {
+                await worker.value
+            } onCancel: {
+                worker.cancel()
+            }
+
             apply(snapshot: snapshot)
-            statusText = snapshot.cancelled ? "Scan cancelled." : "Scan complete. Review before selecting anything."
-            phase = snapshot.cancelled ? .cancelled : .complete
-            progress = 1
-            progressDetail = snapshot.cancelled ? "Scan stopped before completion." : "Scan complete. Safe candidates remain unselected."
-            isWorking = false
+            switch snapshot.completeness {
+            case .complete:
+                phase = .reviewing
+                statusText = "Scan complete. Review visible candidates; nothing is selected."
+            case .partial:
+                phase = .reviewing
+                statusText = "Scan partial. Review the Issues tab before relying on missing results."
+            case .cancelled:
+                phase = .cancelled
+                statusText = "Scan cancelled. Partial findings remain visible and are labeled incomplete."
+            case .failed:
+                phase = .failed
+                statusText = "Scan failed. Review the Issues tab."
+            case .notRun:
+                phase = .idle
+                statusText = "No scan has run."
+            }
         }
     }
 
     func cancel() {
+        guard isWorking else { return }
         activeTask?.cancel()
-        statusText = "Cancellation requested. Waiting for active command to return."
         phase = .cancelled
-        progressDetail = "Cancellation requested."
+        statusText = "Cancellation requested. Active shell work is being terminated where possible."
     }
 
-    func selectSafe() {
+    func selectVisibleCandidates() {
         let visibleIDs = Set(cleanableItems.map(\.id))
         items = items.map { item in
             var copy = item
-            copy.isSelected = item.isCleanable && visibleIDs.contains(item.id)
+            copy.isSelected = copy.isCleanable && visibleIDs.contains(copy.id)
             return copy
         }
+        invalidatePreview()
+        statusText = "Selected \(visibleIDs.count) visible candidates. Preview is required before cleanup."
     }
 
-    func clearSelection() {
-        items = items.map { item in
-            var copy = item
-            copy.isSelected = false
-            return copy
-        }
+    func clearSelection(reason: String? = nil) {
+        items = items.map { item in var copy = item; copy.isSelected = false; return copy }
+        invalidatePreview()
+        if let reason { statusText = reason }
     }
 
     func toggle(_ item: ScanItem) {
-        guard let index = items.firstIndex(where: { $0.id == item.id }) else { return }
-        guard items[index].isCleanable else { return }
+        guard !isWorking, let index = items.firstIndex(where: { $0.id == item.id }), items[index].isCleanable else { return }
         items[index].isSelected.toggle()
+        invalidatePreview()
+        statusText = "Selection changed. Run Preview again before cleanup."
     }
 
     func previewSelected() {
-        phase = .previewing
-        progress = 0.35
-        progressDetail = "Checking selected paths against SafetyEngine."
-        let selected = selectedItems
-        cleanupResults = runner.dryRunSelected(selected)
-        statusText = "Dry-run preview complete. Nothing was moved."
-        phase = .complete
-        progress = 1
-        progressDetail = "Preview complete. Nothing was moved."
-        writeReport(mode: .dryRun)
-    }
-
-    func cleanSelected() {
+        guard !isWorking else { return }
         let selected = selectedItems
         guard !selected.isEmpty else {
-            statusText = "No selected cleanup candidates."
+            statusText = "No cleanup candidates are selected."
             return
         }
-        activeTask?.cancel()
+        let outcome = runner.previewSelected(selected)
+        cleanupResults = outcome.results
+        cleanupPlan = outcome.plan
+        lastReportMode = .dryRun
+        if let plan = outcome.plan {
+            authorization.authorize(items: items, plan: plan)
+            phase = .previewed
+            statusText = "Preview authorized plan \(plan.id.uuidString.prefix(8)). Review every path, then confirm Move to Trash."
+        } else {
+            authorization.invalidate()
+            phase = .failed
+            statusText = "Preview blocked. No cleanup plan was authorized."
+        }
+        appendLedger(mode: .dryRun, plan: outcome.plan, results: outcome.results, movedBytes: 0)
+    }
+
+    func cleanConfirmed() {
+        guard canClean, let plan = cleanupPlan else {
+            statusText = "Cleanup authorization is stale or missing. Run Preview again."
+            return
+        }
         isWorking = true
         phase = .cleaning
-        progress = 0.12
-        progressDetail = "SafetyEngine is checking every selected path."
-        statusText = "Moving exact selected targets to Trash..."
-        let runnerHome = runner.home
-        let scannerHome = scanner.home
-        let selectedSizes = Dictionary(uniqueKeysWithValues: selected.map { ($0.path, $0.sizeBytes) })
+        statusText = "Revalidating each previewed target immediately before moving it to Finder Trash…"
+        let home = NSHomeDirectory()
         activeTask = Task {
-            let results = await Task.detached(priority: .userInitiated) {
-                CleanupRunner(home: runnerHome).cleanSelected(selected)
-            }.value
-            if Task.isCancelled { return }
-            cleanupResults = results
-            lastTrashBytes = results.filter { $0.status == "Moved to Trash" }.reduce(Int64(0)) { partial, result in
-                partial + (selectedSizes[result.path] ?? 0)
+            defer {
+                isWorking = false
+                activeTask = nil
             }
-            progress = 0.62
-            phase = .refreshing
-            progressDetail = "Trash move complete. Refreshing disk scan."
-            statusText = "Cleanup attempt complete. Refreshing scan..."
-            let snapshot = await Task.detached(priority: .userInitiated) {
-                DiskScanner(home: scannerHome).scan()
-            }.value
+            let cleanupWorker = Task.detached(priority: .userInitiated) {
+                CleanupRunner(home: home).clean(plan: plan)
+            }
+            let results = await withTaskCancellationHandler {
+                await cleanupWorker.value
+            } onCancel: {
+                cleanupWorker.cancel()
+            }
+            cleanupResults = results
+            lastReportMode = .cleanup
+            lastTrashBytes = results.filter { $0.status == "Moved to Trash" }.reduce(Int64(0)) { total, result in
+                total + (plan.items.first(where: { $0.path == result.path })?.sizeBytes ?? 0)
+            }
+            appendLedger(mode: .cleanup, plan: plan, results: results, movedBytes: lastTrashBytes)
+            authorization.invalidate()
+            lastCompletedPlan = plan
+            cleanupPlan = nil
+
+            if results.contains(where: { $0.status == "Failed" || $0.status == "Blocked" }) {
+                phase = .failed
+                statusText = "Cleanup completed with blocked or failed items. Review the complete Results list."
+            } else if results.contains(where: { $0.status == "Cancelled" }) {
+                phase = .cancelled
+                statusText = "Cleanup cancelled. Completed moves remain in Trash; unprocessed items were not moved."
+            } else {
+                phase = .complete
+                statusText = "Moved \(lastTrashSizeText) to Finder Trash. This is not a claim that disk space is free."
+            }
+
+            if Task.isCancelled {
+                phase = .cancelled
+                statusText = "Cleanup cancellation completed. No refresh scan was started."
+                return
+            }
+            let roots = parsedExcludedRoots
+            let scanWorker = Task.detached(priority: .utility) {
+                DiskScanner(home: home, excludedLargeFileRelativePaths: roots).scan()
+            }
+            let snapshot = await withTaskCancellationHandler {
+                await scanWorker.value
+            } onCancel: {
+                scanWorker.cancel()
+            }
             apply(snapshot: snapshot, preserveResults: true)
-            statusText = "Cleanup complete. Review results."
-            phase = .complete
-            progress = 1
-            progressDetail = "Cleanup complete. Empty Trash manually to release all space."
-            isWorking = false
-            writeReport(mode: .cleanup)
         }
     }
 
-    func writeReport(mode: ReportMode = .scan) {
-        phase = .reporting
-        progressDetail = "Writing report."
-        let report = ScanReport(
-            mode: mode,
-            timestamp: Date(),
-            diskStatus: diskStatus,
-            items: items,
-            results: cleanupResults,
-            storageSummaries: storageSummaries,
-            permissionDiagnostics: permissionDiagnostics,
-            warnings: warnings,
-            scanDurationSeconds: scanDurationSeconds,
-            policyVersion: CleanupCatalog.policyVersion,
-            appVersion: scanner.appVersion,
-            fullDiskAccessStatus: fullDiskAccessStatus
-        )
+    func writeReport() {
+        let report = currentReport(mode: lastReportMode)
         do {
-            lastReportURL = try ReportWriter.write(report: report, destinationDirectory: reportDestinationDirectory)
-            statusText = "Report written: \(lastReportURL?.path ?? "unknown path")"
-            phase = .complete
+            lastReportURL = try ReportWriter.write(
+                report: report,
+                format: reportFormat,
+                redaction: pathRedaction,
+                destinationDirectory: reportDestinationDirectory
+            )
+            reportStatusText = "Report written: \(lastReportURL?.path ?? "unknown path")"
         } catch {
-            statusText = "Report failed: \(error.localizedDescription)"
-            phase = .complete
+            reportStatusText = "Report failed: \(error.localizedDescription)"
         }
     }
 
@@ -262,10 +303,7 @@ final class AppModel: ObservableObject {
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
         panel.directoryURL = reportDestinationDirectory
-        if panel.runModal() == .OK {
-            reportDestinationDirectory = panel.url
-            statusText = "Report destination: \(panel.url?.path ?? "default")"
-        }
+        if panel.runModal() == .OK { reportDestinationDirectory = panel.url }
     }
 
     func reveal(_ item: ScanItem) {
@@ -273,9 +311,23 @@ final class AppModel: ObservableObject {
         NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: item.path)])
     }
 
-    func toggleBackgroundScanning() {
-        backgroundScanningEnabled.toggle()
-        configureBackgroundScanning()
+    func copyPath(_ item: ScanItem) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(item.path, forType: .string)
+        statusText = "Copied path."
+    }
+
+    func copyResult(_ result: CleanupResult) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString("\(result.status): \(result.path) — \(result.detail)", forType: .string)
+        statusText = "Copied result."
+    }
+
+    func requestAccessSettings() {
+        statusText = "Opening Full Disk Access settings. macOS controls approval; run a new scan afterward."
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles") {
+            NSWorkspace.shared.open(url)
+        }
     }
 
     func openReportsFolder() {
@@ -286,75 +338,34 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func requestAllPermissions() {
-        phase = .scanning
-        progress = 0.2
-        progressDetail = "Opening the macOS Full Disk Access pane."
-        permissionRequestSummary = "Grant Full Disk Access to DexCleaner once, then rescan. macOS does not allow apps to approve this silently."
-        statusText = "Opening Privacy & Security. Add DexCleaner to Full Disk Access, then return here and scan."
-
-        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles") {
-            NSWorkspace.shared.open(url)
-        }
-
-        triggerPermissionProbe()
-        phase = .complete
-        progress = 1
-        progressDetail = "Permission request flow started. Rerun Scan after granting access."
+    func openTrash() {
+        NSWorkspace.shared.open(URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".Trash"))
     }
 
-    func centerWindowIfNeeded() {
-        guard let screenFrame = NSScreen.main?.visibleFrame else { return }
-        for window in NSApp.windows where window.title == "DexCleaner" || window.contentViewController != nil {
-            let width = min(max(window.frame.width, 1120), screenFrame.width)
-            let height = min(max(window.frame.height, 760), screenFrame.height)
-            let origin = NSPoint(
-                x: screenFrame.midX - width / 2,
-                y: screenFrame.midY - height / 2
-            )
-            window.setFrame(NSRect(origin: origin, size: NSSize(width: width, height: height)), display: true)
-            window.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
-        }
+    func quit() {
+        NSApp.terminate(nil)
     }
 
-    func toggleLaunchAtLogin() {
-        do {
-            if launchAtLoginEnabled {
-                try SMAppService.mainApp.unregister()
-                launchAtLoginEnabled = false
-                statusText = "Launch at login disabled."
-            } else {
-                try SMAppService.mainApp.register()
-                launchAtLoginEnabled = true
-                statusText = "Launch at login enabled."
-            }
-        } catch {
-            launchAtLoginEnabled = SMAppService.mainApp.status == .enabled
-            statusText = "Launch at login failed: \(error.localizedDescription)"
-        }
+    private var parsedExcludedRoots: [String] {
+        excludedLargeFileRootsText
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .compactMap(ManifestValidator.canonicalRelativePath)
     }
 
-    private func apply(snapshot: ScanSnapshot, preserveResults: Bool = false) {
-        items = snapshot.items
-        diskStatus = snapshot.diskStatus
-        storageSummaries = snapshot.storageSummaries
-        permissionDiagnostics = snapshot.permissionDiagnostics
-        warnings = snapshot.warnings
-        fullDiskAccessStatus = snapshot.fullDiskAccessStatus
-        scanDurationSeconds = snapshot.scanDurationSeconds
-        if !preserveResults { cleanupResults = [] }
+    private func matchesSearch(_ item: ScanItem) -> Bool {
+        let term = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !term.isEmpty else { return true }
+        return [item.displayName, item.path, item.group, item.manifestID ?? "", item.explanation]
+            .contains { $0.localizedCaseInsensitiveContains(term) }
     }
 
     private func sorted(_ source: [ScanItem]) -> [ScanItem] {
         switch sortMode {
         case .largestFirst:
             return source.sorted { $0.sizeBytes > $1.sizeBytes }
-        case .group:
-            return source.sorted {
-                if $0.group != $1.group { return $0.group < $1.group }
-                return $0.sizeBytes > $1.sizeBytes
-            }
+        case .name:
+            return source.sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
         case .risk:
             return source.sorted {
                 if $0.risk.sortRank != $1.risk.sortRank { return $0.risk.sortRank < $1.risk.sortRank }
@@ -363,37 +374,69 @@ final class AppModel: ObservableObject {
         }
     }
 
-    private func configureBackgroundScanning() {
-        backgroundTimer?.invalidate()
-        backgroundTimer = nil
-        guard backgroundScanningEnabled else {
-            statusText = "Background scans disabled."
-            return
-        }
-        statusText = "Background scans enabled. DexCleaner will only scan, never clean automatically."
-        backgroundTimer = Timer.scheduledTimer(withTimeInterval: 600, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                guard let self, !self.isWorking else { return }
-                self.scan()
-            }
-        }
+    private func invalidatePreview() {
+        authorization.invalidate()
+        cleanupPlan = nil
+        if phase == .previewed { phase = .reviewing }
     }
 
-    private func triggerPermissionProbe() {
-        let probePaths = [
-            "Library/Mail",
-            "Library/Safari",
-            "Library/Messages",
-            "Desktop",
-            "Documents",
-            "Downloads"
-        ]
-        let homeURL = URL(fileURLWithPath: scanner.home)
-        for relativePath in probePaths {
-            let url = homeURL.appendingPathComponent(relativePath)
-            _ = try? FileManager.default.contentsOfDirectory(atPath: url.path)
+    private func apply(snapshot: ScanSnapshot, preserveResults: Bool = false) {
+        items = snapshot.items.map { item in var copy = item; copy.isSelected = false; return copy }
+        diskStatus = snapshot.diskStatus
+        storageSummaries = snapshot.storageSummaries
+        permissionDiagnostics = snapshot.permissionDiagnostics
+        warnings = snapshot.warnings
+        scanIssues = snapshot.issues
+        scanCompleteness = snapshot.completeness
+        accessStatus = snapshot.accessStatus
+        scanDurationSeconds = snapshot.scanDurationSeconds
+        invalidatePreview()
+        if !preserveResults { cleanupResults = [] }
+    }
+
+    private func currentReport(mode: ReportMode) -> ScanReport {
+        let reportPlan: CleanupPlan?
+        switch mode {
+        case .scan:
+            reportPlan = nil
+        case .dryRun:
+            reportPlan = cleanupPlan
+        case .cleanup:
+            reportPlan = lastCompletedPlan
         }
-        permissionDiagnostics = PermissionDiagnostics.evaluate(home: scanner.home)
-        fullDiskAccessStatus = PermissionDiagnostics.summary(permissionDiagnostics)
+        return ScanReport(
+            mode: mode,
+            timestamp: Date(),
+            diskStatus: diskStatus,
+            items: items,
+            results: cleanupResults,
+            storageSummaries: storageSummaries,
+            permissionDiagnostics: permissionDiagnostics,
+            warnings: warnings,
+            issues: scanIssues,
+            completeness: scanCompleteness,
+            scanDurationSeconds: scanDurationSeconds,
+            policyVersion: CleanupCatalog.policyVersion,
+            manifestChecksum: CleanupCatalog.manifestChecksum,
+            appVersion: DiskScanner().appVersion,
+            accessStatus: accessStatus,
+            cleanupPlan: reportPlan,
+            movedToTrashBytes: lastTrashBytes
+        )
+    }
+
+    private func appendLedger(mode: ReportMode, plan: CleanupPlan?, results: [CleanupResult], movedBytes: Int64) {
+        do {
+            lastLedgerURL = try OperationLedger.append(OperationLedgerEntry(
+                mode: mode,
+                planID: plan?.id,
+                manifestVersion: CleanupCatalog.policyVersion,
+                manifestChecksum: CleanupCatalog.manifestChecksum,
+                results: results,
+                movedToTrashBytes: movedBytes
+            ))
+        } catch {
+            reportStatusText = "Operation completed, but ledger append failed: \(error.localizedDescription)"
+        }
     }
 }

@@ -9,9 +9,7 @@ var targets: [Target] = [
     .target(
         name: "DexCleanerCore",
         path: "Sources/DexCleanerCore",
-        resources: [
-            .process("Resources")
-        ]
+        resources: [.process("Resources")]
     ),
     .testTarget(
         name: "DexCleanerTests",
