@@ -1,6 +1,69 @@
 import Foundation
 
-public struct ScanItem: Identifiable, Hashable, Sendable {
+public enum MeasurementSource: String, Codable, Sendable {
+    case fresh = "Fresh measurement"
+    case cache = "Cached measurement"
+    case notMeasured = "Not measured"
+}
+
+public enum ScanCompleteness: String, Codable, Sendable {
+    case complete = "Complete"
+    case partial = "Partial"
+    case cancelled = "Cancelled"
+    case failed = "Failed"
+    case notRun = "Not run"
+}
+
+public enum ScanIssueKind: String, Codable, Sendable {
+    case permission = "Permission limited"
+    case timeout = "Timed out"
+    case commandFailure = "Command failed"
+    case manifest = "Manifest unavailable"
+    case cancellation = "Cancelled"
+    case filesystem = "Filesystem changed"
+}
+
+public struct ScanIssue: Identifiable, Hashable, Codable, Sendable {
+    public let id: UUID
+    public var kind: ScanIssueKind
+    public var area: String
+    public var detail: String
+
+    public init(id: UUID = UUID(), kind: ScanIssueKind, area: String, detail: String) {
+        self.id = id
+        self.kind = kind
+        self.area = area
+        self.detail = detail
+    }
+}
+
+public struct FileIdentity: Hashable, Codable, Sendable {
+    public var fileNumber: UInt64?
+    public var systemNumber: UInt64?
+    public var fileType: String
+    public var sizeBytes: Int64
+    public var modificationTime: TimeInterval?
+
+    public init(fileNumber: UInt64?, systemNumber: UInt64?, fileType: String, sizeBytes: Int64, modificationTime: TimeInterval?) {
+        self.fileNumber = fileNumber
+        self.systemNumber = systemNumber
+        self.fileType = fileType
+        self.sizeBytes = sizeBytes
+        self.modificationTime = modificationTime
+    }
+
+    public static func capture(path: String) -> FileIdentity? {
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: path) else { return nil }
+        let number = (attributes[.systemFileNumber] as? NSNumber)?.uint64Value
+        let system = (attributes[.systemNumber] as? NSNumber)?.uint64Value
+        let type = (attributes[.type] as? FileAttributeType)?.rawValue ?? "unknown"
+        let size = (attributes[.size] as? NSNumber)?.int64Value ?? 0
+        let modified = (attributes[.modificationDate] as? Date)?.timeIntervalSince1970
+        return FileIdentity(fileNumber: number, systemNumber: system, fileType: type, sizeBytes: size, modificationTime: modified)
+    }
+}
+
+public struct ScanItem: Identifiable, Hashable, Codable, Sendable {
     public let id: UUID
     public var manifestID: String?
     public var path: String
@@ -13,6 +76,9 @@ public struct ScanItem: Identifiable, Hashable, Sendable {
     public var recoveryNote: String
     public var action: CleanupAction
     public var isSelected: Bool
+    public var measuredAt: Date?
+    public var measurementSource: MeasurementSource
+    public var owningProcessRunning: Bool
 
     public init(
         id: UUID = UUID(),
@@ -26,7 +92,10 @@ public struct ScanItem: Identifiable, Hashable, Sendable {
         explanation: String,
         recoveryNote: String = "No automatic recovery note provided.",
         action: CleanupAction,
-        isSelected: Bool
+        isSelected: Bool,
+        measuredAt: Date? = nil,
+        measurementSource: MeasurementSource = .notMeasured,
+        owningProcessRunning: Bool = false
     ) {
         self.id = id
         self.manifestID = manifestID
@@ -40,6 +109,9 @@ public struct ScanItem: Identifiable, Hashable, Sendable {
         self.recoveryNote = recoveryNote
         self.action = action
         self.isSelected = isSelected
+        self.measuredAt = measuredAt
+        self.measurementSource = measurementSource
+        self.owningProcessRunning = owningProcessRunning
     }
 
     public var formattedSize: String {
@@ -71,9 +143,7 @@ public enum RiskLevel: String, CaseIterable, Codable, Sendable {
     case forbidden = "Forbidden"
     case protected = "Protected"
 
-    public var allowsSelection: Bool {
-        self == .safe
-    }
+    public var allowsSelection: Bool { self == .safe }
 
     public var sortRank: Int {
         switch self {
@@ -98,7 +168,19 @@ public enum ReportMode: String, Codable, Sendable {
     case cleanup = "Cleanup"
 }
 
-public struct CleanupResult: Identifiable, Hashable, Sendable {
+public enum ReportFormat: String, CaseIterable, Identifiable, Codable, Sendable {
+    case markdown = "Markdown"
+    case json = "JSON"
+    public var id: String { rawValue }
+}
+
+public enum PathRedactionMode: String, CaseIterable, Identifiable, Codable, Sendable {
+    case none = "Full paths"
+    case homeRelative = "Redact home path"
+    public var id: String { rawValue }
+}
+
+public struct CleanupResult: Identifiable, Hashable, Codable, Sendable {
     public let id: UUID
     public var path: String
     public var status: String
@@ -112,20 +194,64 @@ public struct CleanupResult: Identifiable, Hashable, Sendable {
     }
 }
 
-public struct DiskStatus: Hashable, Sendable {
+public struct CleanupPlanItem: Identifiable, Hashable, Codable, Sendable {
+    public let id: UUID
+    public let scanItemID: UUID
+    public let manifestID: String
+    public let path: String
+    public let displayName: String
+    public let sizeBytes: Int64
+    public let identity: FileIdentity
+    public let safetyReason: String
+
+    public init(id: UUID = UUID(), scanItemID: UUID, manifestID: String, path: String, displayName: String, sizeBytes: Int64, identity: FileIdentity, safetyReason: String) {
+        self.id = id
+        self.scanItemID = scanItemID
+        self.manifestID = manifestID
+        self.path = path
+        self.displayName = displayName
+        self.sizeBytes = sizeBytes
+        self.identity = identity
+        self.safetyReason = safetyReason
+    }
+}
+
+public struct CleanupPlan: Identifiable, Hashable, Codable, Sendable {
+    public let id: UUID
+    public let createdAt: Date
+    public let manifestVersion: String
+    public let manifestChecksum: String
+    public let items: [CleanupPlanItem]
+
+    public init(id: UUID = UUID(), createdAt: Date = Date(), manifestVersion: String, manifestChecksum: String, items: [CleanupPlanItem]) {
+        self.id = id
+        self.createdAt = createdAt
+        self.manifestVersion = manifestVersion
+        self.manifestChecksum = manifestChecksum
+        self.items = items
+    }
+
+    public var totalBytes: Int64 { items.reduce(0) { $0 + $1.sizeBytes } }
+}
+
+public struct PreviewOutcome: Sendable {
+    public var results: [CleanupResult]
+    public var plan: CleanupPlan?
+
+    public init(results: [CleanupResult], plan: CleanupPlan?) {
+        self.results = results
+        self.plan = plan
+    }
+}
+
+public struct DiskStatus: Hashable, Codable, Sendable {
     public var filesystem: String
     public var size: String
     public var used: String
     public var available: String
     public var capacity: String
 
-    public init(
-        filesystem: String = "Unknown",
-        size: String = "Unknown",
-        used: String = "Unknown",
-        available: String = "Unknown",
-        capacity: String = "Unknown"
-    ) {
+    public init(filesystem: String = "Unknown", size: String = "Unknown", used: String = "Unknown", available: String = "Unknown", capacity: String = "Unknown") {
         self.filesystem = filesystem
         self.size = size
         self.used = used
@@ -134,7 +260,7 @@ public struct DiskStatus: Hashable, Sendable {
     }
 }
 
-public struct StorageSummaryItem: Identifiable, Hashable, Sendable, Codable {
+public struct StorageSummaryItem: Identifiable, Hashable, Codable, Sendable {
     public let id: UUID
     public var label: String
     public var bytes: Int64
@@ -147,12 +273,10 @@ public struct StorageSummaryItem: Identifiable, Hashable, Sendable, Codable {
         self.detail = detail
     }
 
-    public var formattedSize: String {
-        ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
-    }
+    public var formattedSize: String { ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file) }
 }
 
-public struct PermissionDiagnostic: Identifiable, Hashable, Sendable, Codable {
+public struct PermissionDiagnostic: Identifiable, Hashable, Codable, Sendable {
     public let id: UUID
     public var title: String
     public var status: String
@@ -175,11 +299,13 @@ public struct ScanSnapshot: Sendable {
     public var storageSummaries: [StorageSummaryItem]
     public var permissionDiagnostics: [PermissionDiagnostic]
     public var warnings: [String]
+    public var issues: [ScanIssue]
+    public var completeness: ScanCompleteness
     public var scanDurationSeconds: TimeInterval
     public var policyVersion: String
+    public var manifestChecksum: String
     public var appVersion: String
-    public var fullDiskAccessStatus: String
-    public var cancelled: Bool
+    public var accessStatus: String
 
     public init(
         timestamp: Date,
@@ -188,11 +314,13 @@ public struct ScanSnapshot: Sendable {
         storageSummaries: [StorageSummaryItem] = [],
         permissionDiagnostics: [PermissionDiagnostic] = [],
         warnings: [String] = [],
+        issues: [ScanIssue] = [],
+        completeness: ScanCompleteness,
         scanDurationSeconds: TimeInterval,
         policyVersion: String,
+        manifestChecksum: String,
         appVersion: String,
-        fullDiskAccessStatus: String,
-        cancelled: Bool
+        accessStatus: String
     ) {
         self.timestamp = timestamp
         self.diskStatus = diskStatus
@@ -200,15 +328,17 @@ public struct ScanSnapshot: Sendable {
         self.storageSummaries = storageSummaries
         self.permissionDiagnostics = permissionDiagnostics
         self.warnings = warnings
+        self.issues = issues
+        self.completeness = completeness
         self.scanDurationSeconds = scanDurationSeconds
         self.policyVersion = policyVersion
+        self.manifestChecksum = manifestChecksum
         self.appVersion = appVersion
-        self.fullDiskAccessStatus = fullDiskAccessStatus
-        self.cancelled = cancelled
+        self.accessStatus = accessStatus
     }
 }
 
-public struct ScanReport: Sendable {
+public struct ScanReport: Codable, Sendable {
     public var mode: ReportMode
     public var timestamp: Date
     public var diskStatus: DiskStatus
@@ -217,10 +347,15 @@ public struct ScanReport: Sendable {
     public var storageSummaries: [StorageSummaryItem]
     public var permissionDiagnostics: [PermissionDiagnostic]
     public var warnings: [String]
+    public var issues: [ScanIssue]
+    public var completeness: ScanCompleteness
     public var scanDurationSeconds: TimeInterval
     public var policyVersion: String
+    public var manifestChecksum: String
     public var appVersion: String
-    public var fullDiskAccessStatus: String
+    public var accessStatus: String
+    public var cleanupPlan: CleanupPlan?
+    public var movedToTrashBytes: Int64
 
     public init(
         mode: ReportMode = .scan,
@@ -231,10 +366,15 @@ public struct ScanReport: Sendable {
         storageSummaries: [StorageSummaryItem] = [],
         permissionDiagnostics: [PermissionDiagnostic] = [],
         warnings: [String] = [],
+        issues: [ScanIssue] = [],
+        completeness: ScanCompleteness = .notRun,
         scanDurationSeconds: TimeInterval,
         policyVersion: String,
+        manifestChecksum: String = "unavailable",
         appVersion: String,
-        fullDiskAccessStatus: String
+        accessStatus: String,
+        cleanupPlan: CleanupPlan? = nil,
+        movedToTrashBytes: Int64 = 0
     ) {
         self.mode = mode
         self.timestamp = timestamp
@@ -244,9 +384,14 @@ public struct ScanReport: Sendable {
         self.storageSummaries = storageSummaries
         self.permissionDiagnostics = permissionDiagnostics
         self.warnings = warnings
+        self.issues = issues
+        self.completeness = completeness
         self.scanDurationSeconds = scanDurationSeconds
         self.policyVersion = policyVersion
+        self.manifestChecksum = manifestChecksum
         self.appVersion = appVersion
-        self.fullDiskAccessStatus = fullDiskAccessStatus
+        self.accessStatus = accessStatus
+        self.cleanupPlan = cleanupPlan
+        self.movedToTrashBytes = movedToTrashBytes
     }
 }

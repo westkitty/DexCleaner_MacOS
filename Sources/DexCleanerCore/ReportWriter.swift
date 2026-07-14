@@ -1,34 +1,64 @@
 import Foundation
 
-public struct ReportWriter {
-    public static func write(report: ScanReport, destinationDirectory: URL? = nil) throws -> URL {
+public enum ReportWriter {
+    public static func write(
+        report: ScanReport,
+        format: ReportFormat = .markdown,
+        redaction: PathRedactionMode = .none,
+        destinationDirectory: URL? = nil,
+        home: String = NSHomeDirectory()
+    ) throws -> URL {
         let formatter = ISO8601DateFormatter()
         let stamp = formatter.string(from: report.timestamp).replacingOccurrences(of: ":", with: "-")
         let directory = destinationDirectory
             ?? FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask).first
-            ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Desktop")
+            ?? URL(fileURLWithPath: home).appendingPathComponent("Desktop")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let modeSlug = report.mode.rawValue.lowercased().replacingOccurrences(of: " ", with: "-")
-        let url = directory.appendingPathComponent("DexCleaner-\(modeSlug)-Report-\(stamp).md")
+        let ext = format == .markdown ? "md" : "json"
+        let suffix = UUID().uuidString.prefix(8)
+        let url = directory.appendingPathComponent("DexCleaner-\(modeSlug)-Report-\(stamp)-\(suffix).\(ext)")
+        let redacted = redact(report: report, mode: redaction, home: home)
 
+        switch format {
+        case .markdown:
+            try markdown(redacted).write(to: url, atomically: true, encoding: .utf8)
+        case .json:
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+            encoder.dateEncodingStrategy = .iso8601
+            try encoder.encode(redacted).write(to: url, options: .atomic)
+        }
+        return url
+    }
+
+    public static func write(report: ScanReport, destinationDirectory: URL? = nil) throws -> URL {
+        try write(report: report, format: .markdown, destinationDirectory: destinationDirectory)
+    }
+
+    private static func markdown(_ report: ScanReport) -> String {
+        let formatter = ISO8601DateFormatter()
         let cleanable = report.items.filter { $0.action == .moveToTrash }
         let auditOnly = report.items.filter { $0.action == .auditOnly && $0.category != .protected && $0.category != .cloudStorage }
         let protected = report.items.filter { $0.category == .protected || $0.category == .cloudStorage || $0.risk == .forbidden }
         let selected = report.items.filter { $0.isSelected }
-        let skipped = report.results.filter { $0.status == "Skipped" || $0.status == "Blocked in preview" }
+        let blocked = report.results.filter { $0.status == "Blocked" }
         let failed = report.results.filter { $0.status == "Failed" }
+        let moved = report.results.filter { $0.status == "Moved to Trash" }
 
         var text = "# DexCleaner \(report.mode.rawValue) Report\n\n"
         text += "Generated: \(formatter.string(from: report.timestamp))\n\n"
-        text += "## App and policy\n\n"
+        text += "## Authority and completeness\n\n"
         text += "- App version: \(report.appVersion)\n"
-        text += "- Safety policy version: \(report.policyVersion)\n"
+        text += "- Manifest version: \(report.policyVersion)\n"
+        text += "- Manifest checksum: \(report.manifestChecksum)\n"
         text += "- Report mode: \(report.mode.rawValue)\n"
+        text += "- Scan completeness: \(report.completeness.rawValue)\n"
         text += "- Scan duration: \(String(format: "%.2f", report.scanDurationSeconds)) seconds\n"
-        text += "- Full Disk Access: \(report.fullDiskAccessStatus)\n"
-        text += "- Cleanup mode: Move to Finder Trash only\n"
-        text += "- Allowlist mode: exact manifest paths only\n"
-        text += "- Network/telemetry: none implemented\n\n"
+        text += "- Access check: \(report.accessStatus)\n"
+        text += "- Cleanup mechanism: Finder Trash only\n"
+        text += "- Disk space freed: not asserted; moved items remain in Trash until emptied manually\n"
+        text += "- Network and telemetry: none\n\n"
 
         text += "## Disk\n\n"
         text += "- Filesystem: \(report.diskStatus.filesystem)\n"
@@ -39,12 +69,27 @@ public struct ReportWriter {
 
         text += "## Summary\n\n"
         text += "- Cleanup candidates: \(cleanable.count)\n"
-        text += "- Selected cleanup candidates: \(selected.count)\n"
-        text += "- Selected reclaim: \(ByteCountFormatter.string(fromByteCount: selected.reduce(0) { $0 + $1.sizeBytes }, countStyle: .file))\n"
+        text += "- Selected candidates: \(selected.count)\n"
+        text += "- Selected estimate: \(ByteCountFormatter.string(fromByteCount: selected.reduce(0) { $0 + $1.sizeBytes }, countStyle: .file))\n"
         text += "- Audit-only findings: \(auditOnly.count)\n"
-        text += "- Protected/forbidden paths reported: \(protected.count)\n"
-        text += "- Cleanup skipped/blocked: \(skipped.count)\n"
-        text += "- Cleanup failed: \(failed.count)\n\n"
+        text += "- Protected presence markers: \(protected.count)\n"
+        text += "- Moved to Trash: \(moved.count) items / \(ByteCountFormatter.string(fromByteCount: report.movedToTrashBytes, countStyle: .file))\n"
+        text += "- Blocked: \(blocked.count)\n"
+        text += "- Failed: \(failed.count)\n\n"
+
+        if let plan = report.cleanupPlan {
+            text += "## Immutable cleanup plan\n\n"
+            text += "- Plan ID: \(plan.id.uuidString)\n"
+            text += "- Created: \(formatter.string(from: plan.createdAt))\n"
+            text += "- Manifest version: \(plan.manifestVersion)\n"
+            text += "- Manifest checksum: \(plan.manifestChecksum)\n"
+            text += "- Planned items: \(plan.items.count)\n"
+            text += "- Planned bytes: \(ByteCountFormatter.string(fromByteCount: plan.totalBytes, countStyle: .file))\n\n"
+            for item in plan.items {
+                text += "- \(item.displayName): `\(escapeBackticks(item.path))` — \(item.safetyReason)\n"
+            }
+            text += "\n"
+        }
 
         if !report.warnings.isEmpty {
             text += "## Warnings\n\n"
@@ -52,14 +97,24 @@ public struct ReportWriter {
             text += "\n"
         }
 
+        text += "## Scan issues\n\n"
+        if report.issues.isEmpty {
+            text += "No scan issues recorded.\n\n"
+        } else {
+            for issue in report.issues { text += "- \(issue.kind.rawValue) — \(issue.area): \(issue.detail)\n" }
+            text += "\n"
+        }
+
         appendStorageSummary(report.storageSummaries, into: &text)
         appendPermissionDiagnostics(report.permissionDiagnostics, into: &text)
         appendGroupedSection("Cleanup candidates", items: cleanable, into: &text)
         appendGroupedSection("Audit-only findings", items: auditOnly, into: &text)
-        appendGroupedSection("Protected and forbidden paths", items: protected, into: &text)
+        appendGroupedSection("Protected presence markers", items: protected, into: &text)
 
-        if !report.results.isEmpty {
-            text += "## Results\n\n"
+        text += "## Results\n\n"
+        if report.results.isEmpty {
+            text += "No preview or cleanup results.\n\n"
+        } else {
             for result in report.results {
                 text += "- \(result.status): `\(escapeBackticks(result.path))` — \(result.detail)\n"
             }
@@ -67,15 +122,91 @@ public struct ReportWriter {
         }
 
         text += "## Safety reminder\n\n"
-        text += "DexCleaner reports audit-only, caution, cloud, and protected paths so disk pressure is visible without pretending those paths are disposable. Do not convert audit findings into cleanup targets without a separate safety review. The project doctrine is preview-first, exact manifest allowlist, and Finder Trash only.\n"
+        text += "DexCleaner grants cleanup authority only to exact paths in the validated bundled manifest. Audit findings, protected locations, cloud storage, project trees, Git internals, and user content are not cleanup targets. A moved-to-Trash byte count is not a claim that disk space has been freed.\n"
+        return text
+    }
 
-        try text.write(to: url, atomically: true, encoding: .utf8)
-        return url
+    private static func redact(report: ScanReport, mode: PathRedactionMode, home: String) -> ScanReport {
+        guard mode == .homeRelative else { return report }
+        var copy = report
+        let normalizedHome = SafetyEngine.lexicalNormalize(home)
+
+        func redactText(_ text: String) -> String {
+            text
+                .replacingOccurrences(of: normalizedHome, with: "~")
+                .replacingOccurrences(of: home, with: "~")
+        }
+
+        func redactPath(_ path: String) -> String {
+            guard path.hasPrefix("/") else { return redactText(path) }
+            let normalized = SafetyEngine.lexicalNormalize(path)
+            guard normalized == normalizedHome || normalized.hasPrefix(normalizedHome + "/") else {
+                return redactText(path)
+            }
+            return "~" + normalized.dropFirst(normalizedHome.count)
+        }
+
+        copy.items = copy.items.map { item in
+            var value = item
+            value.path = redactPath(item.path)
+            value.displayName = redactText(item.displayName)
+            value.explanation = redactText(item.explanation)
+            value.recoveryNote = redactText(item.recoveryNote)
+            return value
+        }
+        copy.results = copy.results.map { result in
+            var value = result
+            value.path = redactPath(result.path)
+            value.detail = redactText(result.detail)
+            return value
+        }
+        copy.storageSummaries = copy.storageSummaries.map { summary in
+            var value = summary
+            value.label = redactText(summary.label)
+            value.detail = redactText(summary.detail)
+            return value
+        }
+        copy.permissionDiagnostics = copy.permissionDiagnostics.map { diagnostic in
+            var value = diagnostic
+            value.title = redactText(diagnostic.title)
+            value.detail = redactText(diagnostic.detail)
+            value.remediation = redactText(diagnostic.remediation)
+            return value
+        }
+        copy.warnings = copy.warnings.map(redactText)
+        copy.issues = copy.issues.map { issue in
+            var value = issue
+            value.area = redactText(issue.area)
+            value.detail = redactText(issue.detail)
+            return value
+        }
+        if let plan = copy.cleanupPlan {
+            let items = plan.items.map { item in
+                CleanupPlanItem(
+                    id: item.id,
+                    scanItemID: item.scanItemID,
+                    manifestID: item.manifestID,
+                    path: redactPath(item.path),
+                    displayName: redactText(item.displayName),
+                    sizeBytes: item.sizeBytes,
+                    identity: item.identity,
+                    safetyReason: redactText(item.safetyReason)
+                )
+            }
+            copy.cleanupPlan = CleanupPlan(
+                id: plan.id,
+                createdAt: plan.createdAt,
+                manifestVersion: plan.manifestVersion,
+                manifestChecksum: plan.manifestChecksum,
+                items: items
+            )
+        }
+        return copy
     }
 
     private static func appendStorageSummary(_ summaries: [StorageSummaryItem], into text: inout String) {
         text += "## Storage summary\n\n"
-        if summaries.isEmpty { text += "No storage summaries.\n\n"; return }
+        if summaries.isEmpty { text += "No measured storage summaries.\n\n"; return }
         for summary in summaries.sorted(by: { $0.bytes > $1.bytes }) {
             text += "- \(summary.label): \(summary.formattedSize) — \(summary.detail)\n"
         }
@@ -83,8 +214,8 @@ public struct ReportWriter {
     }
 
     private static func appendPermissionDiagnostics(_ diagnostics: [PermissionDiagnostic], into text: inout String) {
-        text += "## Permission diagnostics\n\n"
-        if diagnostics.isEmpty { text += "No permission diagnostics recorded.\n\n"; return }
+        text += "## Access checks\n\n"
+        if diagnostics.isEmpty { text += "No access checks recorded.\n\n"; return }
         for diagnostic in diagnostics {
             text += "### \(diagnostic.title)\n"
             text += "- Status: \(diagnostic.status)\n"
@@ -99,9 +230,7 @@ public struct ReportWriter {
         let grouped = Dictionary(grouping: items, by: { $0.group })
         for group in grouped.keys.sorted() {
             text += "### Group: \(group)\n\n"
-            for item in (grouped[group] ?? []).sorted(by: { $0.sizeBytes > $1.sizeBytes }) {
-                appendItem(item, into: &text)
-            }
+            for item in (grouped[group] ?? []).sorted(by: { $0.sizeBytes > $1.sizeBytes }) { appendItem(item, into: &text) }
         }
     }
 
@@ -110,18 +239,16 @@ public struct ReportWriter {
         text += "- Manifest ID: \(item.manifestID ?? "none")\n"
         text += "- Path: `\(escapeBackticks(item.path))`\n"
         text += "- Size: \(item.sizeBytes > 0 ? item.formattedSize : "not measured")\n"
+        text += "- Measurement: \(item.measurementSource.rawValue)"
+        if let measuredAt = item.measuredAt { text += " at \(ISO8601DateFormatter().string(from: measuredAt))" }
+        text += "\n"
         text += "- Category: \(item.category.rawValue)\n"
         text += "- Risk: \(item.risk.rawValue)\n"
         text += "- Action: \(item.action.rawValue)\n"
         text += "- Selected: \(item.isSelected ? "yes" : "no")\n"
+        text += "- Owning process appears active: \(item.owningProcessRunning ? "yes" : "no")\n"
         text += "- Explanation: \(item.explanation)\n"
-        text += "- Recovery note: \(item.recoveryNote)\n"
-        if item.action == .moveToTrash {
-            text += "- Safety decision: \(SafetyEngine.decision(for: item).reason)\n"
-        } else {
-            text += "- Safety decision: Not cleanable by design.\n"
-        }
-        text += "\n"
+        text += "- Recovery note: \(item.recoveryNote)\n\n"
     }
 
     private static func escapeBackticks(_ text: String) -> String {

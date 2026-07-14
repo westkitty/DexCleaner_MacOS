@@ -15,12 +15,12 @@ public struct CatalogEntry: Hashable, Codable, Sendable {
         id: String,
         relativePath: String,
         displayName: String,
-        group: String = "Ungrouped",
+        group: String,
         category: CleanupCategory,
-        risk: RiskLevel = .safe,
+        risk: RiskLevel,
         explanation: String,
-        recoveryNote: String = "Regeneratable cache. If needed, rerun the owning tool or app.",
-        defaultSelected: Bool
+        recoveryNote: String,
+        defaultSelected: Bool = false
     ) {
         self.id = id
         self.relativePath = relativePath
@@ -33,34 +33,7 @@ public struct CatalogEntry: Hashable, Codable, Sendable {
         self.defaultSelected = defaultSelected
     }
 
-    public init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.id = try container.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
-        self.relativePath = try container.decode(String.self, forKey: .relativePath)
-        self.displayName = try container.decode(String.self, forKey: .displayName)
-        self.group = try container.decodeIfPresent(String.self, forKey: .group) ?? "Ungrouped"
-        self.category = try container.decode(CleanupCategory.self, forKey: .category)
-        self.risk = try container.decodeIfPresent(RiskLevel.self, forKey: .risk) ?? .safe
-        self.explanation = try container.decode(String.self, forKey: .explanation)
-        self.recoveryNote = try container.decodeIfPresent(String.self, forKey: .recoveryNote) ?? "Regeneratable cache. If needed, rerun the owning tool or app."
-        self.defaultSelected = try container.decodeIfPresent(Bool.self, forKey: .defaultSelected) ?? false
-    }
-
-    private enum CodingKeys: String, CodingKey {
-        case id
-        case relativePath
-        case displayName
-        case group
-        case category
-        case risk
-        case explanation
-        case recoveryNote
-        case defaultSelected
-    }
-
-    public var action: CleanupAction {
-        risk == .safe ? .moveToTrash : .auditOnly
-    }
+    public var action: CleanupAction { risk == .safe ? .moveToTrash : .auditOnly }
 }
 
 public struct CleanupManifest: Codable, Sendable {
@@ -79,80 +52,166 @@ public struct CleanupManifest: Codable, Sendable {
     }
 }
 
+public struct ManifestLoadResult: Sendable {
+    public var manifest: CleanupManifest?
+    public var checksum: String
+    public var errors: [String]
+
+    public init(manifest: CleanupManifest?, checksum: String, errors: [String]) {
+        self.manifest = manifest
+        self.checksum = checksum
+        self.errors = errors
+    }
+}
+
+public enum ManifestValidator {
+    private static let forbiddenBroadRoots: Set<String> = [
+        ".cache", ".Trash", "Applications", "Developer", "Library",
+        "Library/Caches", "Library/Application Support", "Library/CloudStorage",
+        "Library/Developer", "Library/Developer/Xcode", "Library/Developer/Xcode/DerivedData",
+        "Desktop", "Documents", "Downloads", "Movies", "Pictures", "Projects"
+    ]
+
+    public static func validate(_ manifest: CleanupManifest) -> [String] {
+        var errors: [String] = []
+        validateRequiredText(manifest.version, name: "Manifest version", errors: &errors)
+        validateRequiredText(manifest.name, name: "Manifest name", errors: &errors)
+        validateRequiredText(manifest.policy, name: "Manifest policy", errors: &errors)
+        if manifest.safeExactTargets.isEmpty { errors.append("Manifest contains no exact targets.") }
+
+        var seenFragments = Set<String>()
+        for fragment in manifest.forbiddenFragments {
+            if fragment.isEmpty || fragment != fragment.trimmingCharacters(in: .whitespacesAndNewlines) {
+                errors.append("Manifest contains an empty or whitespace-padded forbidden fragment.")
+            }
+            if !fragment.hasPrefix("/") {
+                errors.append("Forbidden fragment must begin with '/': \(fragment).")
+            }
+            if !seenFragments.insert(fragment).inserted {
+                errors.append("Duplicate forbidden fragment: \(fragment).")
+            }
+        }
+
+        var seenIDs = Set<String>()
+        var seenPaths = Set<String>()
+        var canonicalPaths: [String?] = []
+
+        for (index, entry) in manifest.safeExactTargets.enumerated() {
+            let id = entry.id
+            if id.isEmpty || id != id.trimmingCharacters(in: .whitespacesAndNewlines) {
+                errors.append("Target at index \(index) has an empty or whitespace-padded id.")
+            }
+            if !seenIDs.insert(id).inserted { errors.append("Duplicate manifest id: \(id).") }
+
+            let canonicalPath = canonicalRelativePath(entry.relativePath)
+            canonicalPaths.append(canonicalPath)
+            guard let path = canonicalPath else {
+                errors.append("Target \(id) has an invalid canonical relative path: \(entry.relativePath).")
+                continue
+            }
+            if !seenPaths.insert(path).inserted { errors.append("Duplicate manifest path: \(path).") }
+            if forbiddenBroadRoots.contains(path) { errors.append("Target \(id) is a forbidden broad root: \(path).") }
+            let rootedPath = "/" + path
+            for fragment in manifest.forbiddenFragments where rootedPath.contains(fragment) {
+                errors.append("Target \(id) conflicts with forbidden fragment \(fragment).")
+            }
+            if entry.risk != .safe { errors.append("Cleanup authority manifest target \(id) is not Safe.") }
+            if entry.defaultSelected { errors.append("Target \(id) must not be selected by default.") }
+
+            validateRequiredText(entry.displayName, name: "Target \(id) displayName", errors: &errors)
+            validateRequiredText(entry.group, name: "Target \(id) group", errors: &errors)
+            validateRequiredText(entry.explanation, name: "Target \(id) explanation", errors: &errors)
+            validateRequiredText(entry.recoveryNote, name: "Target \(id) recoveryNote", errors: &errors)
+        }
+
+        let paths = canonicalPaths.compactMap { $0 }
+        for leftIndex in paths.indices {
+            for rightIndex in paths.indices where rightIndex > leftIndex {
+                let left = paths[leftIndex]
+                let right = paths[rightIndex]
+                if left.hasPrefix(right + "/") || right.hasPrefix(left + "/") {
+                    errors.append("Overlapping manifest paths: \(left) and \(right).")
+                }
+            }
+        }
+        return errors
+    }
+
+    public static func canonicalRelativePath(_ rawPath: String) -> String? {
+        guard !rawPath.isEmpty,
+              rawPath == rawPath.trimmingCharacters(in: .whitespacesAndNewlines),
+              !rawPath.hasPrefix("/") else { return nil }
+        let components = rawPath.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
+        guard !components.isEmpty,
+              components.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." }) else { return nil }
+        let canonical = components.joined(separator: "/")
+        guard canonical == rawPath else { return nil }
+        return canonical
+    }
+
+    private static func validateRequiredText(_ value: String, name: String, errors: inout [String]) {
+        if value.isEmpty || value != value.trimmingCharacters(in: .whitespacesAndNewlines) {
+            errors.append("\(name) is empty or whitespace-padded.")
+        }
+    }
+}
+
 public enum CleanupCatalog {
-    public static let manifest: CleanupManifest = loadManifest()
-
-    /// Historical name retained for compatibility. This now includes Safe, Caution, Audit only, and Forbidden manifest targets.
-    public static var exactSafeEntries: [CatalogEntry] {
-        manifest.safeExactTargets
-    }
-
-    public static var cleanableEntries: [CatalogEntry] {
-        manifest.safeExactTargets.filter { $0.risk == .safe }
-    }
-
-    public static var auditOnlyEntries: [CatalogEntry] {
-        manifest.safeExactTargets.filter { $0.risk != .safe }
-    }
-
-    public static var policyVersion: String {
-        manifest.version
-    }
-
-    public static var forbiddenFragments: [String] {
-        manifest.forbiddenFragments
-    }
+    public static let loadResult: ManifestLoadResult = loadManifest()
+    public static var manifest: CleanupManifest? { loadResult.manifest }
+    public static var isAvailable: Bool { manifest != nil && loadResult.errors.isEmpty }
+    public static var validationErrors: [String] { loadResult.errors }
+    public static var exactSafeEntries: [CatalogEntry] { manifest?.safeExactTargets ?? [] }
+    public static var cleanableEntries: [CatalogEntry] { isAvailable ? exactSafeEntries : [] }
+    public static var policyVersion: String { manifest?.version ?? "unavailable" }
+    public static var manifestChecksum: String { loadResult.checksum }
+    public static var forbiddenFragments: [String] { manifest?.forbiddenFragments ?? conservativeForbiddenFragments }
 
     public static func exactAllowedPaths(home: String = NSHomeDirectory()) -> Set<String> {
+        guard isAvailable else { return [] }
         let homeURL = URL(fileURLWithPath: home).standardizedFileURL
-        return Set(cleanableEntries.map { entry in
-            SafetyEngine.lexicalNormalize(homeURL.appendingPathComponent(entry.relativePath).path)
-        })
+        return Set(cleanableEntries.map { SafetyEngine.lexicalNormalize(homeURL.appendingPathComponent($0.relativePath).path) })
     }
 
     public static func entry(forManifestID manifestID: String) -> CatalogEntry? {
-        manifest.safeExactTargets.first { $0.id == manifestID }
+        cleanableEntries.first { $0.id == manifestID }
     }
 
-    public static func entries(groupedBy group: String) -> [CatalogEntry] {
-        manifest.safeExactTargets.filter { $0.group == group }
+    public static func exactPath(for entry: CatalogEntry, home: String = NSHomeDirectory()) -> String {
+        SafetyEngine.lexicalNormalize(URL(fileURLWithPath: home).appendingPathComponent(entry.relativePath).path)
     }
 
-    private static func loadManifest() -> CleanupManifest {
+    private static func loadManifest() -> ManifestLoadResult {
         guard let url = Bundle.module.url(forResource: "CleanupManifest", withExtension: "json") else {
-            return fallbackManifest
+            return ManifestLoadResult(manifest: nil, checksum: "unavailable", errors: ["Bundled cleanup manifest is missing. Cleanup is disabled."])
         }
-
         do {
             let data = try Data(contentsOf: url)
-            return try JSONDecoder().decode(CleanupManifest.self, from: data)
+            let checksum = stableChecksum(data)
+            let manifest = try JSONDecoder().decode(CleanupManifest.self, from: data)
+            let errors = ManifestValidator.validate(manifest)
+            guard errors.isEmpty else { return ManifestLoadResult(manifest: nil, checksum: checksum, errors: errors) }
+            return ManifestLoadResult(manifest: manifest, checksum: checksum, errors: [])
         } catch {
-            return fallbackManifest
+            return ManifestLoadResult(manifest: nil, checksum: "unavailable", errors: ["Cleanup manifest could not be decoded: \(error.localizedDescription). Cleanup is disabled."])
         }
     }
 
-    // Emergency fallback only. The bundled JSON manifest is the intended source of truth.
-    private static let fallbackManifest = CleanupManifest(
-        version: "fallback-3",
-        name: "DexCleaner fallback cleanup manifest",
-        policy: "Exact canonical allowlist only. Move to Trash. No broad cache roots. No app state/session stores.",
-        safeExactTargets: [
-            CatalogEntry(id: "homebrew-cache", relativePath: "Library/Caches/Homebrew", displayName: "Homebrew cache", group: "Homebrew", category: .packageCache, risk: .safe, explanation: "Homebrew download/build cache. Regeneratable.", recoveryNote: "Homebrew will re-download packages when needed.", defaultSelected: false),
-            CatalogEntry(id: "pip-cache", relativePath: "Library/Caches/pip", displayName: "pip cache", group: "Python", category: .packageCache, risk: .safe, explanation: "Python pip package cache. Regeneratable.", recoveryNote: "pip will re-download packages when needed.", defaultSelected: false),
-            CatalogEntry(id: "swiftpm-cache", relativePath: "Library/Caches/org.swift.swiftpm", displayName: "Swift Package Manager cache", group: "Swift", category: .developerCache, risk: .safe, explanation: "SwiftPM dependency cache. Regeneratable.", recoveryNote: "SwiftPM will resolve and fetch packages again.", defaultSelected: false),
-            CatalogEntry(id: "npm-cache", relativePath: "Library/Caches/npm", displayName: "npm cache", group: "Node", category: .packageCache, risk: .safe, explanation: "npm cache. Regeneratable.", recoveryNote: "npm will re-download packages when needed.", defaultSelected: false),
-            CatalogEntry(id: "pnpm-cache", relativePath: "Library/Caches/pnpm", displayName: "pnpm cache", group: "JavaScript", category: .packageCache, risk: .safe, explanation: "pnpm cache. Regeneratable.", recoveryNote: "pnpm will re-download packages when needed.", defaultSelected: false),
-            CatalogEntry(id: "yarn-cache", relativePath: "Library/Caches/Yarn", displayName: "Yarn cache", group: "JavaScript", category: .packageCache, risk: .safe, explanation: "Yarn cache. Regeneratable.", recoveryNote: "Yarn will re-download packages when needed.", defaultSelected: false),
-            CatalogEntry(id: "cocoapods-cache", relativePath: "Library/Caches/CocoaPods", displayName: "CocoaPods cache", group: "CocoaPods", category: .packageCache, risk: .safe, explanation: "CocoaPods cache. Regeneratable.", recoveryNote: "CocoaPods will download pods again when needed.", defaultSelected: false),
-            CatalogEntry(id: "gradle-cache", relativePath: "Library/Caches/Gradle", displayName: "Gradle cache", group: "Gradle", category: .packageCache, risk: .safe, explanation: "Gradle cache. Regeneratable.", recoveryNote: "Gradle will download dependencies again when needed.", defaultSelected: false),
-            CatalogEntry(id: "xcode-cache", relativePath: "Library/Caches/com.apple.dt.Xcode", displayName: "Xcode cache", group: "Xcode", category: .developerCache, risk: .safe, explanation: "Xcode cache. Regeneratable.", recoveryNote: "Xcode will rebuild cache data when needed.", defaultSelected: false),
-            CatalogEntry(id: "xcode-module-cache", relativePath: "Library/Developer/Xcode/DerivedData/ModuleCache.noindex", displayName: "Xcode module cache", group: "Xcode", category: .developerCache, risk: .safe, explanation: "Xcode module cache. Regeneratable.", recoveryNote: "Xcode will rebuild module cache data during future builds.", defaultSelected: false),
-            CatalogEntry(id: "simulator-cache", relativePath: "Library/Developer/CoreSimulator/Caches", displayName: "CoreSimulator cache", group: "Simulator", category: .developerCache, risk: .safe, explanation: "CoreSimulator cache. Regeneratable.", recoveryNote: "Simulator and Xcode will recreate cache data when needed.", defaultSelected: false),
-            CatalogEntry(id: "vscode-cache", relativePath: "Library/Application Support/Code/Cache", displayName: "VS Code cache", group: "VS Code", category: .exactCache, risk: .safe, explanation: "VS Code runtime cache only.", recoveryNote: "VS Code will regenerate cache after launch.", defaultSelected: false),
-            CatalogEntry(id: "xcode-deriveddata", relativePath: "Library/Developer/Xcode/DerivedData", displayName: "Xcode DerivedData", group: "Xcode", category: .developerCache, risk: .caution, explanation: "Large developer build artifacts. Review before deleting.", recoveryNote: "Xcode will rebuild, but this may cause long rebuilds.", defaultSelected: false)
-        ],
-        forbiddenFragments: [
-            "/.cache", "/.antigravity", "/.antigravity_archive", "/Antigravity", "/Local Storage", "/Session Storage", "/IndexedDB", "/Service Worker", "/User/globalStorage", "/User/workspaceStorage", "/User/History", "/Library/Keychains", "/Library/CloudStorage", "/iCloud Drive", "/Dropbox", "/OneDrive", "/Google Drive", "/Library/Application Support/BraveSoftware", "/Library/Application Support/Google/DriveFS", "/Library/Application Support/Google/Chrome", "/Library/Application Support/Claude/vm_bundles", "/Projects", "/Documents", "/Downloads", "/Movies", "/Pictures"
-        ]
-    )
+    private static func stableChecksum(_ data: Data) -> String {
+        var hash: UInt64 = 14_695_981_039_346_656_037
+        for byte in data {
+            hash ^= UInt64(byte)
+            hash &*= 1_099_511_628_211
+        }
+        return String(format: "%016llx", hash)
+    }
+
+    private static let conservativeForbiddenFragments = [
+        "/.cache", "/.antigravity", "/.antigravity_archive", "/Antigravity",
+        "/Local Storage", "/Session Storage", "/IndexedDB", "/Service Worker",
+        "/User/globalStorage", "/User/workspaceStorage", "/User/History",
+        "/Library/Keychains", "/Library/CloudStorage", "/iCloud Drive", "/Dropbox",
+        "/OneDrive", "/Google Drive", "/Projects", "/Documents", "/Downloads",
+        "/Movies", "/Pictures"
+    ]
 }

@@ -1,18 +1,39 @@
 import Foundation
+#if os(Linux)
+import Glibc
+#else
+import Darwin
+#endif
 
 public struct ShellResult: Sendable {
     public var status: Int32
     public var stdout: String
     public var stderr: String
     public var timedOut: Bool
+    public var cancelled: Bool
     public var durationSeconds: TimeInterval
 
-    public init(status: Int32, stdout: String, stderr: String, timedOut: Bool, durationSeconds: TimeInterval) {
+    public init(status: Int32, stdout: String, stderr: String, timedOut: Bool, cancelled: Bool = false, durationSeconds: TimeInterval) {
         self.status = status
         self.stdout = stdout
         self.stderr = stderr
         self.timedOut = timedOut
+        self.cancelled = cancelled
         self.durationSeconds = durationSeconds
+    }
+}
+
+private final class LockedDataBuffer: @unchecked Sendable {
+    private let lock = NSLock()
+    private var data = Data()
+
+    func append(_ newData: Data) {
+        lock.lock(); data.append(newData); lock.unlock()
+    }
+
+    func string() -> String {
+        lock.lock(); let snapshot = data; lock.unlock()
+        return String(data: snapshot, encoding: .utf8) ?? ""
     }
 }
 
@@ -22,9 +43,8 @@ public enum Shell {
         let process = Process()
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
-        let lock = NSLock()
-        var stdoutData = Data()
-        var stderrData = Data()
+        let stdoutBuffer = LockedDataBuffer()
+        let stderrBuffer = LockedDataBuffer()
 
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = arguments
@@ -33,18 +53,11 @@ public enum Shell {
 
         stdoutPipe.fileHandleForReading.readabilityHandler = { handle in
             let data = handle.availableData
-            guard !data.isEmpty else { return }
-            lock.lock()
-            stdoutData.append(data)
-            lock.unlock()
+            if !data.isEmpty { stdoutBuffer.append(data) }
         }
-
         stderrPipe.fileHandleForReading.readabilityHandler = { handle in
             let data = handle.availableData
-            guard !data.isEmpty else { return }
-            lock.lock()
-            stderrData.append(data)
-            lock.unlock()
+            if !data.isEmpty { stderrBuffer.append(data) }
         }
 
         do {
@@ -55,32 +68,47 @@ public enum Shell {
 
         let deadline = Date().addingTimeInterval(timeout)
         var timedOut = false
+        var cancelled = false
         while process.isRunning && Date() < deadline {
+            if currentTaskIsCancelled {
+                cancelled = true
+                terminate(process)
+                break
+            }
             Thread.sleep(forTimeInterval: 0.03)
         }
 
-        if process.isRunning {
+        if process.isRunning && !cancelled {
             timedOut = true
-            process.terminate()
-            Thread.sleep(forTimeInterval: 0.1)
-            if process.isRunning {
-                process.interrupt()
-            }
+            terminate(process)
         }
 
         process.waitUntilExit()
         stdoutPipe.fileHandleForReading.readabilityHandler = nil
         stderrPipe.fileHandleForReading.readabilityHandler = nil
+        stdoutBuffer.append(stdoutPipe.fileHandleForReading.readDataToEndOfFile())
+        stderrBuffer.append(stderrPipe.fileHandleForReading.readDataToEndOfFile())
 
-        let remainingOut = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-        let remainingErr = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-        lock.lock()
-        stdoutData.append(remainingOut)
-        stderrData.append(remainingErr)
-        let out = String(data: stdoutData, encoding: .utf8) ?? ""
-        let err = String(data: stderrData, encoding: .utf8) ?? ""
-        lock.unlock()
+        return ShellResult(
+            status: process.terminationStatus,
+            stdout: stdoutBuffer.string(),
+            stderr: stderrBuffer.string(),
+            timedOut: timedOut,
+            cancelled: cancelled,
+            durationSeconds: Date().timeIntervalSince(started)
+        )
+    }
 
-        return ShellResult(status: process.terminationStatus, stdout: out, stderr: err, timedOut: timedOut, durationSeconds: Date().timeIntervalSince(started))
+    private static func terminate(_ process: Process) {
+        guard process.isRunning else { return }
+        let pid = pid_t(process.processIdentifier)
+        _ = kill(pid, SIGTERM)
+        let graceDeadline = Date().addingTimeInterval(0.15)
+        while process.isRunning && Date() < graceDeadline { Thread.sleep(forTimeInterval: 0.01) }
+        if process.isRunning { _ = kill(pid, SIGKILL) }
+    }
+
+    private static var currentTaskIsCancelled: Bool {
+        withUnsafeCurrentTask { $0?.isCancelled ?? false }
     }
 }

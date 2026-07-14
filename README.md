@@ -1,163 +1,164 @@
 # DexCleaner
 
-DexCleaner is a conservative macOS SwiftUI disk-audit and safe-cache cleanup app.
+DexCleaner is a conservative macOS SwiftUI disk-audit and exact-cache cleanup app.
 
-It is not a broad cleaner. It is not a “delete everything suspicious” toy. DexCleaner is built around one boring, valuable rule:
+It is not a broad cleaner. It grants cleanup authority only to exact, validated, regeneratable cache targets in the bundled manifest.
 
-> Show the user what is using disk space, but only offer cleanup for exact, manifest-approved, regeneratable cache targets.
+> Scan explicitly. Review visibly. Preview an immutable plan. Confirm exact paths. Revalidate. Move to Finder Trash.
 
-Cleanup uses Finder Trash only. Audit findings are visible for diagnosis but are not cleanup candidates.
+## Current release posture
 
-## Current status
+The core safety refactor is implemented on the `implement/adversarial-safety-refactor` branch.
 
-This repository is Codex-ready, but macOS validation is still required.
+Validated in the available Linux Swift environment:
 
-Validated in Linux sandbox:
+- `swift test`: 22 tests, 0 failures
+- `swift build`: pass
+- Swift parser check for all macOS app source files: pass
+- manifest JSON validation: pass
+- shell syntax and source guards: included in `make bug-sweep`
 
-- `swift test`: PASS
-- `swift build`: PASS
-- `swift package describe`: PASS
-- manifest JSON validation: PASS
-- shell syntax validation: PASS
-- core hidden-file scanner guard: PASS
-- permanent-deletion source guard: PASS
-- 14 XCTest tests, 0 failures
+Still required on actual macOS before release:
 
-Not validated in Linux sandbox:
+- compile and launch the SwiftUI executable target
+- verify Finder Trash movement and restoration
+- verify cancellation during real scans and Trash moves
+- verify Full Disk Access messaging
+- verify keyboard and VoiceOver navigation
+- build, sign, verify, install, and launch the app bundle and DMG
+- run the clean-account release checklist
 
-- macOS SwiftUI executable target
-- Finder Trash behavior
-- `.app` bundle launch
-- DMG generation
+No claim of release readiness exists until those checks pass.
 
-The Linux sandbox cannot compile or run SwiftUI/AppKit. This is not a failure. It is reality, standing there with a clipboard.
+## Safety architecture
 
-## First commands
+DexCleaner enforces these invariants:
 
-From the repository root:
+1. The bundled JSON manifest is the only cleanup-authority source.
+2. Missing or invalid manifest data disables cleanup.
+3. Manifest entries must be exact, non-overlapping, safe, regeneratable, and initially unselected.
+4. Broad roots, user content, cloud storage, project trees, browser profiles, app state, and Git internals are audit-only or protected.
+5. Selection alone never authorizes cleanup.
+6. Preview creates an immutable cleanup plan bound to the selection, manifest version, manifest checksum, and filesystem identities.
+7. Selection changes invalidate the plan.
+8. Every target is revalidated immediately before movement.
+9. Cleanup uses `FileManager.trashItem` on macOS only.
+10. DexCleaner never empties Trash and never claims moved bytes are freed bytes.
+11. Preview authority expires after fifteen minutes.
+12. Cancellation propagates into detached scanner and cleanup workers, terminates active shell commands where possible, and returns the application to a usable state.
+13. Mandatory privacy exclusions cannot be removed by user configuration.
+14. Timeouts, permission limits, command failures, and cancellations appear as scan issues rather than silent zeroes.
+
+## Workflow
+
+### 1. Scan
+
+The app opens idle. Scanning starts only when the user requests it.
+
+A scan reports:
+
+- disk availability
+- exact manifest-authorized candidates
+- audit-only storage findings
+- protected presence markers
+- access-check results
+- explicit completeness and issue status
+- fresh versus cached measurement timestamps
+
+### 2. Review
+
+The user may filter and search findings. Selected targets remain visible in a dedicated Selected tab. Changing the cleanup profile clears selection to prevent hidden authority.
+
+### 3. Preview
+
+Preview performs no mutation. It creates an immutable cleanup plan only when every selected target passes the safety engine and has a readable filesystem identity.
+
+### 4. Confirm and move
+
+The confirmation sheet lists every exact path and estimated byte count. Cleanup revalidates the plan and then moves authorized targets to Finder Trash.
+
+## Removed from the first trustworthy release
+
+The following features were deliberately removed:
+
+- background scanning
+- launch at login
+- automatic launch-time scanning
+- fake percentage progress
+- direct cleanup without preview
+- Git temporary-pack cleanup
+- fallback cleanup manifest
+
+Git temporary packs remain visible as audit-only findings.
+
+## Reports and ledger
+
+DexCleaner writes local Markdown or JSON reports with optional home-path redaction. Reports include:
+
+- app version
+- manifest version and checksum
+- scan completeness
+- access limitations
+- scan issues
+- cleanup plan identifier
+- per-item results
+- moved-to-Trash bytes
+- an explicit warning that moved bytes are not necessarily freed bytes
+
+Preview and cleanup operations are appended to:
+
+```text
+~/Library/Application Support/DexCleaner/operation-ledger.jsonl
+```
+
+No telemetry, analytics, cloud upload, or network dependency is implemented.
+
+## Development
+
+Run the full local sweep:
 
 ```bash
 make bug-sweep
 ```
 
-On macOS 13 or later, also run:
+Core tests:
 
 ```bash
 swift test
-swift build
-swift run DexCleaner
-make app
-open .build/DexCleaner.app
-make dmg
 ```
 
-## What DexCleaner does
+On macOS:
 
-DexCleaner provides:
-
-- disk pressure overview
-- exact manifest-backed safe cleanup candidates
-- dry-run preview before cleanup
-- app/tool grouped findings
-- audit-only large folder/file findings
-- protected-path reporting
-- Full Disk Access diagnostics
-- storage summaries and extension breakdowns
-- local Markdown reports
-- menu bar status/actions
-- app bundle and DMG helper scripts
-
-## Safety doctrine
-
-DexCleaner must preserve these rules:
-
-1. Cleanup is exact manifest allowlist only.
-2. Broad roots such as `~/Library/Caches`, `~/Library/Application Support`, and `~/.cache` are not cleanable merely because they are cache-looking.
-3. Unknown app state, browser profiles, IDE workspace state, cloud storage, project folders, and user content are protected or audit-only.
-4. Cleanup candidates start unselected.
-5. Cleanup uses `FileManager.trashItem` on macOS. No permanent deletion in app code.
-6. Dry-run preview remains available before cleanup.
-7. Symlinked cleanup targets are rejected.
-8. Git temp-pack cleanup is limited to strict abandoned `tmp_pack_*` files directly under `.git/objects/pack/`.
-9. Do not reintroduce `.skipsHiddenFiles` into Git temp-pack scanning.
+```bash
+swift build --product DexCleaner
+swift run DexCleaner
+make app
+make verify-app
+make dmg
+```
 
 ## Important files
 
 ```text
-CODEX_BUILD_INSTRUCTIONS.md
-PROMPT_FOR_FRESH_CHAT.md
-BUG_SWEEP_REPORT.md
 Package.swift
-Makefile
 Sources/DexCleanerCore/Resources/CleanupManifest.json
+Sources/DexCleanerCore/CleanupCatalog.swift
 Sources/DexCleanerCore/SafetyEngine.swift
-Sources/DexCleanerCore/DiskScanner.swift
 Sources/DexCleanerCore/CleanupRunner.swift
+Sources/DexCleanerCore/DiskScanner.swift
+Sources/DexCleanerCore/PreviewAuthorization.swift
+Sources/DexCleanerCore/OperationLedger.swift
 Sources/DexCleanerCore/ReportWriter.swift
 Sources/DexCleaner/AppModel.swift
 Sources/DexCleaner/ContentView.swift
-Sources/DexCleaner/DexCleanerApp.swift
-Tests/DexCleanerTests/SafetyEngineTests.swift
+Tests/DexCleanerTests/DexCleanerTests.swift
 docs/SAFETY_POLICY.md
-docs/IMPLEMENTATION_PLAN.md
-docs/PRIVACY.md
-docs/DISTRIBUTION.md
+docs/MANIFEST_SCHEMA.md
+docs/RELEASE_CHECKLIST.md
+BUG_SWEEP_REPORT.md
+CHANGELOG.md
 ```
 
-## Development
+## Residual boundary
 
-Run the full bug sweep:
-
-```bash
-make bug-sweep
-```
-
-Run only tests:
-
-```bash
-swift test
-```
-
-Build package:
-
-```bash
-swift build
-```
-
-Run app on macOS:
-
-```bash
-swift run DexCleaner
-```
-
-Build `.app` bundle on macOS:
-
-```bash
-make app
-```
-
-Build DMG on macOS:
-
-```bash
-make dmg
-```
-
-## Privacy
-
-DexCleaner is local-only. It has no telemetry, no analytics, no cloud upload, and no network dependency by design.
-
-Reports are local Markdown files.
-
-## Forbidden next work
-
-Do not add these without a separate safety design:
-
-- broad app uninstall
-- browser cleanup
-- cloud cleanup
-- `~/.cache` cleanup
-- unknown `Application Support` cleanup
-- permanent deletion
-- privileged helper cleanup
-
-DexCleaner’s value is restraint. Try not to improve it into a hazard. That would be very on-brand for software, but no.
+DexCleaner revalidates filesystem identity immediately before calling Finder Trash, but the public path-based Trash API cannot provide a mathematical guarantee that no filesystem change occurs in the tiny interval between final validation and movement. Release review must treat that as a residual platform boundary, not pretend it does not exist.
