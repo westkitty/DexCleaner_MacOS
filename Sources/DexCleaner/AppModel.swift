@@ -222,8 +222,6 @@ final class AppModel: ObservableObject {
         storageDrivers = StorageDriverCatalog.defaults() + driverStore.watchlist()
         sampleCapacity(trigger: .applicationLaunch, status: diskStatus, force: true)
         installMonitoringLifecycle()
-        incidentRecorder.start(sample: diskStatus)
-        synchronizeRecorder()
         guard performStartupReconciliation else {
             statusText = "Another DexCleaner instance is active. This process will exit without mutation authority."
             return
@@ -236,6 +234,13 @@ final class AppModel: ObservableObject {
             }
         } catch {
             statusText = "Ledger reconciliation failed: \(error.localizedDescription)"
+        }
+        Task { @MainActor [weak self] in
+            // Let SwiftUI construct the menu extra and command paths before recovery can publish.
+            await Task.yield()
+            guard let self else { return }
+            self.incidentRecorder.start(sample: self.diskStatus)
+            self.synchronizeRecorder()
         }
     }
 

@@ -2,6 +2,68 @@
 
 Date: 2026-07-28 (America/Detroit)
 
+## 1.3.2 emergency responsiveness release — 2026-07-30
+
+- Result: passed. DexCleaner 1.3.2 was built once, installed once, observed for
+  5 minutes 12 seconds during production FSEvents replay, quit normally,
+  relaunched once, and remained responsive.
+- Evidence: the immutable originals remain at
+  `/Users/andrew/Desktop/DexCleaner-Hang-20260730T073409Z`; the indexed copy is
+  `/Users/andrew/Library/Application Support/DexCleaner/Diagnostics/Hang-20260730T073409Z`.
+- Root cause: the 1.3.1 main thread spent 1,945 of 3,001 samples in
+  `StorageIncidentRecorder.accept`, including 1,322 samples in
+  `IncidentStore.save`/`JSONEncoder` and 641 checkpoint encodes. Each replay
+  event also wrote evidence, published observable state, and inserted a
+  recovery Activity item. There was no dispatch-sync or semaphore deadlock:
+  valid production history amplified synchronous per-event main-actor
+  persistence and publication into CPU starvation.
+- The copied support fixture contained 152,797 valid event records
+  (50,366,669 bytes), 72 capacity samples, four incidents, and no malformed
+  record. Its checkpoint was valid but unclean, so the large replay was
+  legitimate.
+- Correction: a dedicated replay actor drains ordered 100-event batches,
+  appends evidence once per batch before checkpointing, throttles main-actor
+  publication to at most every 200 ms plus meaningful boundaries, and
+  coalesces recovery into one Activity entry. `AppModel` yields before starting
+  replay, and opening the full window explicitly dismisses the transient
+  popover.
+- Focused result: 103 tests discovered; 71 unique in-scope tests executed,
+  71 passed, zero failed, zero skipped. Copied-state 10,000-event replay:
+  0.110 seconds, 100 durable checkpoints, two UI publications, 0.000466625
+  second initial main-actor stall, 0.015188125 second maximum heartbeat
+  interval. Synthetic replay: 0.075 seconds and 0.014217459 second maximum
+  interval. Menu and window harness command latencies were 0.066 and 0.070
+  seconds.
+- Installed UI: menu popover opened and closed during active replay; the main
+  window opened, interacted, closed, and reopened from the popover without
+  leaving it above other apps. Installed Quit completed in 0.59 seconds.
+  Exactly one process remained after the required relaunch.
+- Healthy 15-second sample:
+  `/Users/andrew/Library/Application Support/DexCleaner/Diagnostics/Hang-20260730T073409Z/DexCleaner-1.3.2-healthy.sample.txt`.
+  The main thread spent 9,761 of 10,020 samples waiting in the normal run loop;
+  `StorageIncidentRecorder.accept` was absent.
+- Installed version: 1.3.2; bundle ID: `ca.westcat.DexCleaner`; strict
+  signature valid. Executable SHA-256:
+  `d522044f88e21c7c68c488a5abb2339e85a6acd188cc0c6073acd35f8250e282`.
+  Resource-bundle content-tree SHA-256:
+  `cc6d9f0549e7408d9f6998e774d9e7faa1fbc80b09dcc0af66bbdb5e41d43e45`.
+  Cleanup-manifest SHA-256:
+  `1a43342d4d0787d5b3d5a91af63add0f3b52b181c6ea26b31c8bcea2ab94fe4d`.
+- Rollbacks remain preserved and strictly signed: 1.0.0
+  `20260728T003957Z`, 1.2.2 `20260730T000000Z`, 1.3.0
+  `20260730T063952Z` and `20260730T081258Z`, and 1.3.1
+  `20260730T071415Z` and `20260730T074246Z`, all beneath
+  `/Users/andrew/Library/Application Support/DexCleaner/Backups/`.
+- Limitation: a stale duplicate bundle elsewhere on the Mac was initially
+  selected by Launch Services; it was identified by executable path, quit
+  without alteration, and the installed app was then launched from its exact
+  `/Applications` path.
+- Safety: no Quick Scan, candidate selection, Preview, cleanup, live cloud
+  comparison or mutation, deep trace, reserve creation, user-content change,
+  project deletion, unauthorized file movement, or Finder Trash action
+  occurred. Normal launch changed only DexCleaner-owned checkpoint and
+  coalesced Activity state.
+
 ## 1.3.1 final release verification — 2026-07-30
 
 - Result: source and packaging certification passed; 1.3.1 was built once, installed once, and is running from `/Applications/DexCleaner.app`.

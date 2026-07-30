@@ -63,29 +63,41 @@ features.
 
 ## Current state
 
-DexCleaner 1.3.1 is installed at `/Applications/DexCleaner.app`, signed, and
-running as exactly one process. Its executable SHA-256 is
-`8633ea8701094a2c880bd2a04ef0dcdc55eddb8deb7e411a21fe9f0bdbc602c8`;
-its sealed resource-bundle tree SHA-256 is
-`4c0675a388908dd1d617cccd0c1873f88616b4c1ded05b4ba0acf70c9e52cd21`.
-The 1.3.0 rollback is
-`/Users/andrew/Library/Application Support/DexCleaner/Backups/20260730T063952Z/DexCleaner.app`;
-the 1.2.2 and 1.0.0 rollbacks remain preserved and strict-signature valid.
+DexCleaner 1.3.2 is installed at `/Applications/DexCleaner.app`, strictly
+signed, and running as exactly one process. Its executable SHA-256 is
+`d522044f88e21c7c68c488a5abb2339e85a6acd188cc0c6073acd35f8250e282`;
+its sealed resource-bundle content-tree SHA-256 is
+`cc6d9f0549e7408d9f6998e774d9e7faa1fbc80b09dcc0af66bbdb5e41d43e45`.
+The certified cleanup-manifest SHA-256 remains
+`1a43342d4d0787d5b3d5a91af63add0f3b52b181c6ea26b31c8bcea2ab94fe4d`.
 
-The 1.3.1 recorder uses one injected production native FSEvents stream factory,
-production cancellation for cancellable diagnostics, completed repeated-pattern,
-comparator, reserve, deep-trace, and compatibility fixtures, and eight actual
-rendered production SwiftUI certification PNGs. The final bounded ledger is
-63/63 passing from 94 discovered tests; cleanup/Trash and unrelated legacy tests
-were excluded. No live cleanup, Quick Scan, cloud mutation, privileged trace,
-reserve creation, user-content move, or Finder Trash action occurred.
+The 1.3.1 installed hang was main-actor starvation during a valid large
+FSEvents replay, not a lock deadlock or malformed support state. Version 1.3.2
+moves replay work to a dedicated actor, persists ordered 100-event batches,
+checkpoints after evidence, coalesces recovery into one Activity item, and
+throttles observable publication. The copied 10,000-event production-state
+fixture completed in 0.110 seconds with a 0.015188125-second maximum heartbeat
+interval. The bounded release ledger is 71/71 passing from 103 discovered
+tests.
 
-Installed proof limits are explicit: the one accessibility bridge attempt timed
-out, and installed synthetic Markdown/JSON report generation was not forced
-after installation; the same 1.3.1 writer passed isolated compatibility/report
-fixtures. The installed executable did run isolated synthetic production-view
-fixtures. A large FSEvents replay can occupy the bounded 100-entry Activity
-history with per-event completions.
+Installed verification covered 5 minutes 12 seconds of replay, popover
+open/close, window interaction and reopen, a 0.59-second Quit, one relaunch,
+one process, and a healthy 15-second sample dominated by normal run-loop wait.
+No Quick Scan, cleanup, candidate selection, Preview, cloud mutation,
+privileged trace, reserve creation, user-content movement, or Finder Trash
+action occurred.
+
+Strictly signed rollbacks remain at:
+
+- 1.0.0: `Backups/20260728T003957Z/DexCleaner.app`
+- 1.2.2: `Backups/20260730T000000Z/DexCleaner.app`
+- 1.3.0: `Backups/20260730T063952Z/DexCleaner.app` and
+  `Backups/20260730T081258Z/DexCleaner.app`
+- 1.3.1: `Backups/20260730T071415Z/DexCleaner.app` and
+  `Backups/20260730T074246Z/DexCleaner.app`
+
+All paths above are beneath
+`/Users/andrew/Library/Application Support/DexCleaner/`.
 
 Historical 1.2.0 state follows.
 

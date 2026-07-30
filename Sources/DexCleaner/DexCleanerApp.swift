@@ -180,6 +180,7 @@ struct DexCleanerApp: App {
     private func trendText(_ value: Int64?) -> String { guard let value else { return "Stable or insufficient" }; if abs(value) < 250_000_000 { return "Approximately stable" }; return value > 0 ? "Rising" : "Falling" }
 
     private func openMainWindow() {
+        NSApp.windows.first(where: { $0.level == .popUpMenu })?.orderOut(nil)
         openWindow(id: "main")
         NSApp.activate(ignoringOtherApps: true)
     }

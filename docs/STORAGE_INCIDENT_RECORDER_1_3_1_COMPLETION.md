@@ -4,6 +4,23 @@ Date: 2026-07-30
 Branch: `codex/final-storage-forensics`
 Certification result: **Release gates passed; 1.3.1 built once, installed once, signed, launched, and verified with two bounded installed-proof limitations.**
 
+## Post-release runtime finding
+
+The certification result above records what passed at release time, but it is no
+longer the current release disposition. Installed 1.3.1 later became
+unresponsive while replaying a valid Filesystem Events backlog. The captured
+sample proved that the main actor was performing per-event evidence,
+checkpoint, and full Activity persistence. A copied real support-state fixture
+reproduced a 20.582-second main-actor stall; a 10,000-event synthetic batch
+reproduced a 24.823-second stall, 10,000 checkpoint writes, and 100 recovery
+Activity entries.
+
+DexCleaner 1.3.2 supersedes 1.3.1 with asynchronous shell-first startup, a
+dedicated ordered replay actor, 100-event evidence/checkpoint batches, 200 ms
+publication throttling, and one coalesced recovery Activity entry. The full
+evidence, measurements, and release disposition are in
+`docs/DEXCLEANER_1_3_2_RESPONSIVENESS_FIX.md`.
+
 ## Final release-gate closure
 
 This section supersedes the earlier failed-attempt assessment retained below for audit history.

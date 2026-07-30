@@ -184,7 +184,33 @@ public final class IncidentStore: @unchecked Sendable {
     private func file(_ name: String) -> URL { directory.appendingPathComponent(name) }
     public func load<T: Codable>(_ type: T.Type, named name: String, fallback: T) -> T { lock.lock(); defer { lock.unlock() }; guard let data = try? Data(contentsOf: file(name)), let value = try? decoder.decode(T.self, from: data) else { return fallback }; return value }
     public func save<T: Codable>(_ value: T, named name: String) throws { lock.lock(); defer { lock.unlock() }; try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true); try encoder.encode(value).write(to: file(name), options: .atomic) }
-    public func appendEvent(_ event: FSEventEvidence) throws { lock.lock(); defer { lock.unlock() }; try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true); let data = try encoder.encode(event) + Data([10]); let url = file("events-v1.jsonl"); let retained = file("events-v1.previous.jsonl"); if let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.int64Value, size + Int64(data.count) > 64 * 1_024 * 1_024 { if FileManager.default.fileExists(atPath: retained.path) { try FileManager.default.removeItem(at: retained) }; try FileManager.default.moveItem(at: url, to: retained) }; if !FileManager.default.fileExists(atPath: url.path) { FileManager.default.createFile(atPath: url.path, contents: nil) }; let handle = try FileHandle(forWritingTo: url); defer { try? handle.close() }; try handle.seekToEnd(); try handle.write(contentsOf: data); try handle.synchronize() }
+    public func appendEvent(_ event: FSEventEvidence) throws { try appendEvents([event]) }
+    public func appendEvents(_ events: [FSEventEvidence]) throws {
+        guard !events.isEmpty else { return }
+        lock.lock()
+        defer { lock.unlock() }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        var data = Data()
+        for event in events {
+            data.append(try encoder.encode(event))
+            data.append(10)
+        }
+        let url = file("events-v1.jsonl")
+        let retained = file("events-v1.previous.jsonl")
+        if let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.int64Value,
+           size + Int64(data.count) > 64 * 1_024 * 1_024 {
+            if FileManager.default.fileExists(atPath: retained.path) { try FileManager.default.removeItem(at: retained) }
+            try FileManager.default.moveItem(at: url, to: retained)
+        }
+        if !FileManager.default.fileExists(atPath: url.path) {
+            FileManager.default.createFile(atPath: url.path, contents: nil)
+        }
+        let handle = try FileHandle(forWritingTo: url)
+        defer { try? handle.close() }
+        try handle.seekToEnd()
+        try handle.write(contentsOf: data)
+        try handle.synchronize()
+    }
     public func readCheckpoint() -> (FSEventsCheckpoint?, Bool) { lock.lock(); defer { lock.unlock() }; let url = file("fsevents-checkpoint-v1.json"); guard FileManager.default.fileExists(atPath: url.path) else { return (nil, false) }; do { let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601; let value = try decoder.decode(FSEventsCheckpoint.self, from: Data(contentsOf: url)); guard value.schemaVersion == 1 else { throw NSError(domain: "DexCleaner", code: 1) }; return (value, false) } catch { return (nil, true) } }
     @discardableResult public func preserveCorruptCheckpoint(at date: Date = Date()) -> Bool { lock.lock(); defer { lock.unlock() }; let source = file("fsevents-checkpoint-v1.json"); guard FileManager.default.fileExists(atPath: source.path) else { return false }; let destination = file("fsevents-checkpoint-corrupt-\(Int(date.timeIntervalSince1970)).json"); do { try FileManager.default.copyItem(at: source, to: destination); return true } catch { return false } }
     public func loadCheckpoint() -> (FSEventsCheckpoint?, Bool) { let result = readCheckpoint(); if result.1 { _ = preserveCorruptCheckpoint() }; return result }
@@ -325,6 +351,7 @@ public struct FSEventsRecoveryDependencies: Sendable {
     public var loadCheckpoint: @Sendable (IncidentStore) -> (FSEventsCheckpoint?, Bool)
     public var saveCheckpoint: @Sendable (IncidentStore, FSEventsCheckpoint) throws -> Void
     public var appendEvidence: @Sendable (IncidentStore, FSEventEvidence) throws -> Void
+    public var appendEvidenceBatch: @Sendable (IncidentStore, [FSEventEvidence]) throws -> Void
     public var preserveCorruptCheckpoint: @Sendable (IncidentStore, Date) -> Bool
     public var replayAvailable: @Sendable (UInt64) -> Bool
     public var boundedFallbackBaseline: @Sendable (DiskStatus) -> String
@@ -339,6 +366,7 @@ public struct FSEventsRecoveryDependencies: Sendable {
         loadCheckpoint: @escaping @Sendable (IncidentStore) -> (FSEventsCheckpoint?, Bool),
         saveCheckpoint: @escaping @Sendable (IncidentStore, FSEventsCheckpoint) throws -> Void,
         appendEvidence: @escaping @Sendable (IncidentStore, FSEventEvidence) throws -> Void,
+        appendEvidenceBatch: (@Sendable (IncidentStore, [FSEventEvidence]) throws -> Void)? = nil,
         preserveCorruptCheckpoint: @escaping @Sendable (IncidentStore, Date) -> Bool,
         replayAvailable: @escaping @Sendable (UInt64) -> Bool = { _ in true },
         boundedFallbackBaseline: @escaping @Sendable (DiskStatus) -> String = { _ in "Lightweight capacity baseline retained" },
@@ -361,6 +389,9 @@ public struct FSEventsRecoveryDependencies: Sendable {
         self.loadCheckpoint = loadCheckpoint
         self.saveCheckpoint = saveCheckpoint
         self.appendEvidence = appendEvidence
+        self.appendEvidenceBatch = appendEvidenceBatch ?? { store, events in
+            for event in events { try appendEvidence(store, event) }
+        }
         self.preserveCorruptCheckpoint = preserveCorruptCheckpoint
         self.replayAvailable = replayAvailable
         self.boundedFallbackBaseline = boundedFallbackBaseline
@@ -376,6 +407,7 @@ public struct FSEventsRecoveryDependencies: Sendable {
         loadCheckpoint: { $0.readCheckpoint() },
         saveCheckpoint: { try $0.saveCheckpoint($1) },
         appendEvidence: { try $0.appendEvent($1) },
+        appendEvidenceBatch: { try $0.appendEvents($1) },
         preserveCorruptCheckpoint: { $0.preserveCorruptCheckpoint(at: $1) },
         makeStream: {
             #if os(macOS)
@@ -385,6 +417,201 @@ public struct FSEventsRecoveryDependencies: Sendable {
             #endif
         }
     )
+}
+
+private struct FSEventsReplayBatchUpdate: @unchecked Sendable {
+    var checkpoint: FSEventsCheckpoint?
+    var lastEventID: UInt64
+    var duplicateEvents: Int
+    var recoveryRecord: FilesystemEventRecovery
+    var statusOverride: RecorderStatus?
+    var coverage: String
+    var activityState: DiagnosticOperationState
+    var activitySummary: String
+}
+
+private actor FSEventsReplayWorker {
+    private struct PendingBatch: @unchecked Sendable {
+        var events: [FSEventEvidence]
+        var incidentID: UUID?
+        var publish: @MainActor @Sendable (FSEventsReplayBatchUpdate) -> Void
+    }
+
+    static let batchSize = 100
+    static let publicationInterval = Duration.milliseconds(200)
+
+    private let store: IncidentStore
+    private let dependencies: FSEventsRecoveryDependencies
+    private var checkpoint: FSEventsCheckpoint?
+    private var lastEventID: UInt64
+    private var duplicateEvents: Int
+    private var recoveryRecord: FilesystemEventRecovery
+    private var pending: [PendingBatch] = []
+    private var draining = false
+    private var cancelled = false
+    private var lastPublication: ContinuousClock.Instant?
+
+    init(
+        store: IncidentStore,
+        dependencies: FSEventsRecoveryDependencies,
+        checkpoint: FSEventsCheckpoint?,
+        lastEventID: UInt64,
+        duplicateEvents: Int,
+        recoveryRecord: FilesystemEventRecovery
+    ) {
+        self.store = store
+        self.dependencies = dependencies
+        self.checkpoint = checkpoint
+        self.lastEventID = lastEventID
+        self.duplicateEvents = duplicateEvents
+        self.recoveryRecord = recoveryRecord
+    }
+
+    func enqueue(
+        events: [FSEventEvidence],
+        incidentID: UUID?,
+        publish: @escaping @MainActor @Sendable (FSEventsReplayBatchUpdate) -> Void
+    ) async {
+        guard !events.isEmpty, !cancelled else { return }
+        pending.append(PendingBatch(events: events, incidentID: incidentID, publish: publish))
+        guard !draining else { return }
+        draining = true
+        defer { draining = false }
+
+        while !pending.isEmpty, !cancelled {
+            let next = pending.removeFirst()
+            var index = 0
+            while index < next.events.count {
+                let end = min(index + Self.batchSize, next.events.count)
+                let update = process(Array(next.events[index..<end]), incidentID: next.incidentID)
+                let now = ContinuousClock.now
+                let publicationDue = lastPublication.map { $0.duration(to: now) >= Self.publicationInterval } ?? true
+                if update.activityState == .failed || end == next.events.count || publicationDue {
+                    await next.publish(update)
+                    lastPublication = .now
+                }
+                guard !cancelled else { return }
+                guard update.activityState != .failed else {
+                    pending.removeAll()
+                    return
+                }
+                index = end
+                await Task.yield()
+            }
+        }
+    }
+
+    func cancel() {
+        cancelled = true
+        pending.removeAll()
+    }
+
+    private func process(_ events: [FSEventEvidence], incidentID: UUID?) -> FSEventsReplayBatchUpdate {
+        var accepted: [FSEventEvidence] = []
+        accepted.reserveCapacity(events.count)
+        var prospectiveLastEventID = lastEventID
+
+        for var event in events {
+            event.incidentID = incidentID
+            guard event.eventID > prospectiveLastEventID else {
+                duplicateEvents += 1
+                continue
+            }
+            prospectiveLastEventID = event.eventID
+            accepted.append(event)
+        }
+
+        if accepted.isEmpty {
+            recoveryRecord.duplicatesSuppressed = duplicateEvents
+            recoveryRecord.outcome = .resumedWithDuplicatesSuppressed
+            let summary = "FSEvents replay active; \(duplicateEvents) duplicates suppressed"
+            return update(status: nil, coverage: summary, activityState: .complete, summary: summary)
+        }
+
+        do {
+            try dependencies.appendEvidenceBatch(store, accepted)
+            let now = dependencies.now()
+            var nextCheckpoint = checkpoint ?? FSEventsCheckpoint(
+                volumeID: accepted.last?.volume ?? "",
+                deviceID: accepted.last?.volume ?? "",
+                roots: recoveryRecord.watchedRoots,
+                checkpointedAt: now
+            )
+            nextCheckpoint.eventID = prospectiveLastEventID
+            nextCheckpoint.eventTimestamp = accepted[accepted.count - 1].timestamp
+            nextCheckpoint.checkpointedAt = now
+            nextCheckpoint.cleanShutdown = false
+            nextCheckpoint.lastRecovery = duplicateEvents > 0 ? .resumedWithDuplicatesSuppressed : .resumedCompletely
+            try dependencies.saveCheckpoint(store, nextCheckpoint)
+
+            checkpoint = nextCheckpoint
+            lastEventID = prospectiveLastEventID
+            recoveryRecord.firstReplayedEventID = recoveryRecord.firstReplayedEventID ?? accepted.first?.eventID
+            recoveryRecord.newestRecoveredEventID = accepted.last?.eventID
+            recoveryRecord.eventsReplayed += accepted.count
+            recoveryRecord.duplicatesSuppressed = duplicateEvents
+            recoveryRecord.recoveryEndedAt = now
+            recoveryRecord.outcome = duplicateEvents > 0 ? .resumedWithDuplicatesSuppressed : .resumedCompletely
+            recoveryRecord.evidenceCompleteness = .complete
+
+            #if os(macOS)
+            let userDropped = accepted.contains { $0.flags & UInt32(kFSEventStreamEventFlagUserDropped) != 0 }
+            let kernelDropped = accepted.contains { $0.flags & UInt32(kFSEventStreamEventFlagKernelDropped) != 0 }
+            let rootChanged = accepted.contains { $0.flags & UInt32(kFSEventStreamEventFlagRootChanged) != 0 }
+            let boundedGap = accepted.contains { $0.flags & UInt32(kFSEventStreamEventFlagMustScanSubDirs) != 0 }
+            #else
+            let userDropped = false, kernelDropped = false, rootChanged = false, boundedGap = false
+            #endif
+
+            if userDropped || kernelDropped || rootChanged || boundedGap {
+                recoveryRecord.userEventsDropped = recoveryRecord.userEventsDropped || userDropped
+                recoveryRecord.kernelEventsDropped = recoveryRecord.kernelEventsDropped || kernelDropped
+                recoveryRecord.rootChanged = recoveryRecord.rootChanged || rootChanged
+                recoveryRecord.outcome = rootChanged ? .rootChanged : ((userDropped || kernelDropped) ? .eventsDropped : .resumedWithBoundedGap)
+                recoveryRecord.missingIntervalEnd = now
+                recoveryRecord.evidenceCompleteness = .partial
+                let summary = "\(recoveryRecord.outcome.rawValue); explicit missing interval recorded"
+                return update(status: .partialCoverage, coverage: summary, activityState: .partial, summary: summary)
+            }
+
+            let coverage = recoveryRecord.outcome.rawValue
+            return update(status: nil, coverage: coverage, activityState: .complete, summary: activitySummary(coverage))
+        } catch {
+            recoveryRecord.evidenceCompleteness = .failed
+            recoveryRecord.recoveryEndedAt = dependencies.now()
+            recoveryRecord.detail = "Recovery batch commit failed before in-memory advancement: \(error.localizedDescription). Replay may recur; silent evidence loss is not claimed."
+            return update(
+                status: .partialCoverage,
+                coverage: "FSEvents recovery commit failed; recorder remains operational",
+                activityState: .failed,
+                summary: recoveryRecord.detail
+            )
+        }
+    }
+
+    private func update(
+        status: RecorderStatus?,
+        coverage: String,
+        activityState: DiagnosticOperationState,
+        summary: String
+    ) -> FSEventsReplayBatchUpdate {
+        FSEventsReplayBatchUpdate(
+            checkpoint: checkpoint,
+            lastEventID: lastEventID,
+            duplicateEvents: duplicateEvents,
+            recoveryRecord: recoveryRecord,
+            statusOverride: status,
+            coverage: coverage,
+            activityState: activityState,
+            activitySummary: summary
+        )
+    }
+
+    private func activitySummary(_ coverage: String) -> String {
+        let first = recoveryRecord.firstReplayedEventID.map(String.init) ?? "None"
+        let newest = recoveryRecord.newestRecoveredEventID.map(String.init) ?? "None"
+        return "\(coverage); \(recoveryRecord.eventsReplayed) events replayed; \(duplicateEvents) duplicates; range \(first)-\(newest)."
+    }
 }
 
 @MainActor public final class StorageIncidentRecorder: ObservableObject {
@@ -397,10 +624,13 @@ public struct FSEventsRecoveryDependencies: Sendable {
     @Published public private(set) var lastEventID: UInt64 = 0
     @Published public private(set) var coverage: String = "Starting recorder"
     @Published public private(set) var reserveState: String = "Pending Safe Conditions"
+    public private(set) var replayPublicationCount = 0
     public var filesystemEventRecoveryState: FilesystemEventRecovery { recoveryRecord }
     public let settings: IncidentSettings; public let store: IncidentStore; private let recoveryDependencies: FSEventsRecoveryDependencies
     private var samples: [RecorderCapacitySample] = []; private var sleepCheckpoint: RecorderCapacitySample?; private var timer: Timer?; private var stableSince: Date?; private var eventCheckpoint: FSEventsCheckpoint?; private var duplicateEvents = 0; private var recoveryRecord = FilesystemEventRecovery()
     private var stream: (any FSEventsStreamHandle)?
+    private var replayWorker: FSEventsReplayWorker?
+    private var recoveryActivityID: UUID?
     private var currentWatchedRoots: [String] = []
     private var streamLifecycleEnabled = false
     public init(store: IncidentStore = IncidentStore(), settings: IncidentSettings = IncidentSettings(), recoveryDependencies: FSEventsRecoveryDependencies = .live) { self.store = store; self.settings = settings; self.recoveryDependencies = recoveryDependencies; incidents = store.load([StorageIncident].self, named: "incidents-v1.json", fallback: []); samples = store.load([RecorderCapacitySample].self, named: "capacity-v2.json", fallback: []); operations = store.load([DiagnosticOperation].self, named: "activity-v1.json", fallback: []) }
@@ -425,12 +655,14 @@ public struct FSEventsRecoveryDependencies: Sendable {
 
     public func startRecovery(sample: DiskStatus, roots: [String], startStream: Bool = false) {
         status = .recording
+        replayPublicationCount = 0
         currentWatchedRoots = roots
         streamLifecycleEnabled = streamLifecycleEnabled || startStream
         let now = recoveryDependencies.now()
         let volume = recoveryDependencies.currentVolumeIdentity(sample)
         let loaded = recoveryDependencies.loadCheckpoint(store)
         let operation = beginOperation("FSEvents recovery", phase: "Validating durable checkpoint", total: nil)
+        recoveryActivityID = operation
 
         if loaded.1 {
             let preserved = recoveryDependencies.preserveCorruptCheckpoint(store, now)
@@ -806,16 +1038,27 @@ public struct FSEventsRecoveryDependencies: Sendable {
         let sinceNow = UInt64.max
         #endif
         let configuration = FSEventsStreamConfiguration(roots: roots, startingEventID: eventID, latency: 1, flags: flags)
-        let candidate = recoveryDependencies.makeStream(configuration) { [weak self] events in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                for var event in events {
-                    event.incidentID = self.activeIncident?.id
-                    self.accept(event)
+        let worker = FSEventsReplayWorker(
+            store: store,
+            dependencies: recoveryDependencies,
+            checkpoint: eventCheckpoint,
+            lastEventID: lastEventID,
+            duplicateEvents: duplicateEvents,
+            recoveryRecord: recoveryRecord
+        )
+        replayWorker = worker
+        let candidate = recoveryDependencies.makeStream(configuration) { [weak self, weak worker] events in
+            Task { @MainActor [weak self, weak worker] in
+                guard let self, let worker, self.replayWorker === worker else { return }
+                let incidentID = self.activeIncident?.id
+                await worker.enqueue(events: events, incidentID: incidentID) { @MainActor [weak self, weak worker] update in
+                    guard let self, let worker, self.replayWorker === worker else { return }
+                    self.applyReplayBatch(update)
                 }
             }
         }
         guard let candidate else {
+            replayWorker = nil
             status = .partialCoverage
             coverage = "FSEvents stream creation failed; recorder remains operational"
             recoveryRecord.evidenceCompleteness = .failed
@@ -829,6 +1072,7 @@ public struct FSEventsRecoveryDependencies: Sendable {
             candidate.invalidate()
             candidate.release()
             stream = nil
+            replayWorker = nil
             status = .partialCoverage
             coverage = "FSEvents stream start failed; recorder remains operational"
             recoveryRecord.evidenceCompleteness = .failed
@@ -839,12 +1083,28 @@ public struct FSEventsRecoveryDependencies: Sendable {
         coverage = eventID == sinceNow ? "FSEvents active" : "FSEvents replay active"
     }
 
+    private func applyReplayBatch(_ update: FSEventsReplayBatchUpdate) {
+        replayPublicationCount += 1
+        eventCheckpoint = update.checkpoint
+        lastEventID = update.lastEventID
+        duplicateEvents = update.duplicateEvents
+        recoveryRecord = update.recoveryRecord
+        if let statusOverride = update.statusOverride { status = statusOverride }
+        coverage = update.coverage
+        attachRecoveryToIncident()
+        recordRecoveryActivity(state: update.activityState, summary: update.activitySummary)
+    }
+
     private func replaceFSEvents(from eventID: UInt64, roots: [String]) {
         teardownStream()
         startFSEvents(from: eventID, roots: roots)
     }
 
     private func teardownStream() {
+        if let replayWorker {
+            Task { await replayWorker.cancel() }
+        }
+        replayWorker = nil
         guard let stream else { return }
         stream.stop()
         stream.invalidate()
@@ -944,9 +1204,27 @@ public struct FSEventsRecoveryDependencies: Sendable {
     }
 
     private func recordRecoveryActivity(state: DiagnosticOperationState, summary: String) {
-        let entry = recoveryDependencies.makeActivity("FSEvents recovery", "Persisting recovery evidence", state, recoveryDependencies.now(), summary)
-        operations.insert(entry, at: 0)
-        operations = Array(operations.prefix(100))
+        let now = recoveryDependencies.now()
+        let index = recoveryActivityID.flatMap { id in operations.firstIndex(where: { $0.id == id }) }
+            ?? operations.firstIndex(where: { $0.type == "FSEvents recovery" })
+        if let index {
+            var entry = operations.remove(at: index)
+            recoveryActivityID = entry.id
+            entry.phase = "Persisting recovery evidence"
+            entry.state = state
+            entry.endedAt = state == .running ? nil : now
+            entry.processed = recoveryRecord.eventsReplayed
+            entry.summary = summary
+            entry.lastMeaningfulProgress = now
+            operations.insert(entry, at: 0)
+        } else {
+            var entry = recoveryDependencies.makeActivity("FSEvents recovery", "Persisting recovery evidence", state, now, summary)
+            entry.processed = recoveryRecord.eventsReplayed
+            entry.lastMeaningfulProgress = now
+            recoveryActivityID = entry.id
+            operations.insert(entry, at: 0)
+            operations = Array(operations.prefix(100))
+        }
         try? store.save(operations, named: "activity-v1.json")
     }
 }

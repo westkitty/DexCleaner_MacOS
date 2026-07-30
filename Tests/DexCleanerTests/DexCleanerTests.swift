@@ -815,6 +815,30 @@ private final class StreamFactoryProbe: @unchecked Sendable {
     }
 }
 
+private final class ReplayLoadProbe: @unchecked Sendable {
+    private let lock = NSLock()
+    private var evidenceWrites = 0
+    private var checkpointWrites = 0
+
+    func recordEvidence() {
+        lock.lock()
+        evidenceWrites += 1
+        lock.unlock()
+    }
+
+    func recordCheckpoint() {
+        lock.lock()
+        checkpointWrites += 1
+        lock.unlock()
+    }
+
+    var counts: (evidence: Int, checkpoints: Int) {
+        lock.lock()
+        defer { lock.unlock() }
+        return (evidenceWrites, checkpointWrites)
+    }
+}
+
 private final class FakeStreamHandle: FSEventsStreamHandle, @unchecked Sendable {
     private let probe: StreamFactoryProbe
     private let startResult: Bool
@@ -896,15 +920,20 @@ final class FSEventsStreamFactoryTests: XCTestCase {
             FSEventEvidence(eventID: 12, path: "/one/b", flags: flags[1], volume: "volume-A", ancestor: "/one"),
             FSEventEvidence(eventID: 13, path: "/one/c", flags: flags[2], volume: "volume-A", ancestor: "/one")
         ])
-        await Task.yield()
-        await Task.yield()
+        let replayDeadline = ContinuousClock.now.advanced(by: .seconds(5))
+        while recorder.lastEventID != 13, ContinuousClock.now < replayDeadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
         XCTAssertEqual(recorder.lastEventID, 13)
         XCTAssertTrue(recorder.filesystemEventRecoveryState.userEventsDropped)
         XCTAssertTrue(recorder.filesystemEventRecoveryState.kernelEventsDropped)
         XCTAssertTrue(recorder.filesystemEventRecoveryState.rootChanged)
         XCTAssertEqual(recorder.filesystemEventRecoveryState.evidenceCompleteness, .partial)
         stream.deliver([FSEventEvidence(eventID: 13, path: "/one/c", flags: 0, volume: "volume-A", ancestor: "/one")])
-        await Task.yield()
+        let duplicateDeadline = ContinuousClock.now.advanced(by: .seconds(5))
+        while recorder.filesystemEventRecoveryState.duplicatesSuppressed == 0, ContinuousClock.now < duplicateDeadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
         XCTAssertGreaterThan(recorder.filesystemEventRecoveryState.duplicatesSuppressed, 0)
     }
 
@@ -942,6 +971,293 @@ final class FSEventsStreamFactoryTests: XCTestCase {
     func testStreamCallbacksCannotCreateCleanupAuthority() {
         XCTAssertNotEqual(String(describing: FSEventEvidence.self), String(describing: CleanupPlan.self))
         XCTAssertNotEqual(String(describing: FSEventsStreamHandle.self), String(describing: PreviewAuthorization.self))
+    }
+
+    func testTenThousandEventReplayYieldsMainActorAndBatchesPersistence() async throws {
+        let stream = StreamFactoryProbe()
+        let probe = ReplayLoadProbe()
+        let checkpoint = FSEventsCheckpoint(volumeID: "volume-A", deviceID: "volume-A", eventID: 10, roots: ["/one"])
+        let dependencies = FSEventsRecoveryDependencies(
+            now: { Date(timeIntervalSince1970: 1_100) },
+            currentVolumeIdentity: { $0.filesystem },
+            loadCheckpoint: { _ in (checkpoint, false) },
+            saveCheckpoint: { _, _ in probe.recordCheckpoint() },
+            appendEvidence: { _, _ in probe.recordEvidence() },
+            preserveCorruptCheckpoint: { _, _ in true },
+            makeStream: { stream.make($0, delivery: $1) }
+        )
+        let recorder = StorageIncidentRecorder(
+            store: IncidentStore(home: try home().path),
+            recoveryDependencies: dependencies
+        )
+        recorder.startRecovery(sample: status(), roots: checkpoint.roots, startStream: true)
+
+        let events = (11...10_010).map {
+            FSEventEvidence(eventID: UInt64($0), path: "/one/\($0)", flags: 0, volume: "volume-A", ancestor: "/one")
+        }
+        let heartbeat = expectation(description: "main actor heartbeat")
+        let started = ContinuousClock.now
+        stream.deliver(events)
+        Task { @MainActor in heartbeat.fulfill() }
+        await fulfillment(of: [heartbeat], timeout: 30)
+        let stall = started.duration(to: .now)
+
+        let deadline = ContinuousClock.now.advanced(by: .seconds(30))
+        var maximumHeartbeatInterval = Duration.zero
+        while recorder.lastEventID != 10_010, ContinuousClock.now < deadline {
+            let heartbeatStarted = ContinuousClock.now
+            try await Task.sleep(for: .milliseconds(10))
+            maximumHeartbeatInterval = max(maximumHeartbeatInterval, heartbeatStarted.duration(to: .now))
+        }
+
+        let counts = probe.counts
+        XCTAssertLessThan(stall, .milliseconds(250), "FSEvents replay monopolized the main actor for \(stall).")
+        XCTAssertLessThan(maximumHeartbeatInterval, .milliseconds(100), "A replay batch stalled the main actor for \(maximumHeartbeatInterval).")
+        XCTAssertEqual(recorder.lastEventID, 10_010)
+        XCTAssertEqual(counts.evidence, 10_000)
+        XCTAssertLessThanOrEqual(counts.checkpoints, 100, "Checkpoint persistence must be bounded by 100-event replay batches.")
+        XCTAssertLessThanOrEqual(recorder.replayPublicationCount, 5, "Observable replay publication must be substantially below event count.")
+        XCTAssertLessThanOrEqual(
+            recorder.operations.filter { $0.type == "FSEvents recovery" }.count,
+            1,
+            "Recovery Activity must be coalesced instead of inserting one entry per event."
+        )
+        print("DEXCLEANER_REPLAY_METRICS synthetic_events=10000 initial_main_actor_stall=\(stall) max_heartbeat_interval=\(maximumHeartbeatInterval) checkpoint_writes=\(counts.checkpoints) ui_publications=\(recorder.replayPublicationCount)")
+    }
+
+    func testCopiedSupportStateReplaysResponsivelyWhenFixtureIsProvided() async throws {
+        guard let fixtureHome = ProcessInfo.processInfo.environment["DEXCLEANER_SUPPORT_FIXTURE_HOME"] else {
+            throw XCTSkip("Set DEXCLEANER_SUPPORT_FIXTURE_HOME to the isolated copied support-state fixture.")
+        }
+        let source = URL(fileURLWithPath: fixtureHome, isDirectory: true)
+        let copy = try home()
+        try FileManager.default.removeItem(at: copy)
+        try FileManager.default.copyItem(at: source, to: copy)
+
+        let store = IncidentStore(home: copy.path)
+        let loaded = store.readCheckpoint()
+        let checkpoint = try XCTUnwrap(loaded.0)
+        XCTAssertFalse(loaded.1)
+        XCTAssertFalse(checkpoint.cleanShutdown)
+        XCTAssertEqual(store.load([DiagnosticOperation].self, named: "activity-v1.json", fallback: []).count, 100)
+
+        let stream = StreamFactoryProbe()
+        let probe = ReplayLoadProbe()
+        let dependencies = FSEventsRecoveryDependencies(
+            now: { Date(timeIntervalSince1970: 1_100) },
+            currentVolumeIdentity: { _ in checkpoint.volumeID },
+            loadCheckpoint: { _ in (checkpoint, false) },
+            saveCheckpoint: { _, _ in probe.recordCheckpoint() },
+            appendEvidence: { _, _ in probe.recordEvidence() },
+            preserveCorruptCheckpoint: { _, _ in true },
+            makeStream: { stream.make($0, delivery: $1) }
+        )
+        let recorder = StorageIncidentRecorder(store: store, recoveryDependencies: dependencies)
+        recorder.startRecovery(
+            sample: DiskStatus(filesystem: checkpoint.volumeID, immediatelyFreeBytes: 20_000_000_000, availableForWorkBytes: 20_000_000_000),
+            roots: checkpoint.roots,
+            startStream: true
+        )
+
+        let events = (1...10_000).map {
+            FSEventEvidence(
+                eventID: checkpoint.eventID + UInt64($0),
+                path: checkpoint.roots[0] + "/fixture-\($0)",
+                flags: 0,
+                volume: checkpoint.volumeID,
+                ancestor: checkpoint.roots[0]
+            )
+        }
+        let heartbeat = expectation(description: "copied-state main actor heartbeat")
+        let started = ContinuousClock.now
+        stream.deliver(events)
+        Task { @MainActor in heartbeat.fulfill() }
+        await fulfillment(of: [heartbeat], timeout: 30)
+        let stall = started.duration(to: .now)
+
+        let deadline = ContinuousClock.now.advanced(by: .seconds(30))
+        var maximumHeartbeatInterval = Duration.zero
+        while recorder.lastEventID != events.last?.eventID, ContinuousClock.now < deadline {
+            let heartbeatStarted = ContinuousClock.now
+            try await Task.sleep(for: .milliseconds(10))
+            maximumHeartbeatInterval = max(maximumHeartbeatInterval, heartbeatStarted.duration(to: .now))
+        }
+
+        XCTAssertLessThan(stall, .milliseconds(250), "Copied valid support state caused a \(stall) main-actor stall.")
+        XCTAssertLessThan(maximumHeartbeatInterval, .milliseconds(100), "Copied-state replay batch stalled the main actor for \(maximumHeartbeatInterval).")
+        XCTAssertEqual(recorder.lastEventID, events.last?.eventID)
+        XCTAssertLessThanOrEqual(probe.counts.checkpoints, 100)
+        XCTAssertLessThanOrEqual(recorder.replayPublicationCount, 5)
+        print("DEXCLEANER_REPLAY_METRICS copied_state_events=10000 initial_main_actor_stall=\(stall) max_heartbeat_interval=\(maximumHeartbeatInterval) checkpoint_writes=\(probe.counts.checkpoints) ui_publications=\(recorder.replayPublicationCount)")
+    }
+}
+
+@MainActor
+private struct ReplayResponsivenessHarness {
+    let home: URL
+    let recorder: StorageIncidentRecorder
+    let stream: StreamFactoryProbe
+    let probe: ReplayLoadProbe
+    let checkpoint: FSEventsCheckpoint
+
+    static func make(existingOperations: [DiagnosticOperation] = []) throws -> ReplayResponsivenessHarness {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent("DexCleanerResponsive-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        let store = IncidentStore(home: home.path)
+        if !existingOperations.isEmpty { try store.save(existingOperations, named: "activity-v1.json") }
+        let checkpoint = FSEventsCheckpoint(volumeID: "volume-A", deviceID: "volume-A", eventID: 10, roots: ["/one"])
+        let stream = StreamFactoryProbe()
+        let probe = ReplayLoadProbe()
+        let dependencies = FSEventsRecoveryDependencies(
+            now: { Date(timeIntervalSince1970: 1_100) },
+            currentVolumeIdentity: { $0.filesystem },
+            loadCheckpoint: { _ in (checkpoint, false) },
+            saveCheckpoint: { _, _ in probe.recordCheckpoint() },
+            appendEvidence: { _, _ in probe.recordEvidence() },
+            preserveCorruptCheckpoint: { _, _ in true },
+            makeStream: { stream.make($0, delivery: $1) }
+        )
+        let recorder = StorageIncidentRecorder(store: store, recoveryDependencies: dependencies)
+        recorder.startRecovery(
+            sample: DiskStatus(filesystem: "volume-A", immediatelyFreeBytes: 20_000_000_000, availableForWorkBytes: 20_000_000_000),
+            roots: checkpoint.roots,
+            startStream: true
+        )
+        return ReplayResponsivenessHarness(home: home, recorder: recorder, stream: stream, probe: probe, checkpoint: checkpoint)
+    }
+
+    func events(count: Int, duplicate: Bool = false) -> [FSEventEvidence] {
+        (1...count).map {
+            FSEventEvidence(
+                eventID: duplicate ? checkpoint.eventID : checkpoint.eventID + UInt64($0),
+                path: "/one/\($0)",
+                flags: 0,
+                volume: checkpoint.volumeID,
+                ancestor: "/one"
+            )
+        }
+    }
+
+    func waitForReplay(eventID: UInt64, timeout: Duration = .seconds(10)) async throws {
+        let deadline = ContinuousClock.now.advanced(by: timeout)
+        while recorder.lastEventID != eventID, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+    }
+}
+
+@MainActor
+final class HangReproductionTests: XCTestCase {
+    func testCopiedFixtureCarriesTheValidHeavyStateThatTriggeredTheHang() throws {
+        guard let fixtureHome = ProcessInfo.processInfo.environment["DEXCLEANER_SUPPORT_FIXTURE_HOME"] else {
+            throw XCTSkip("Set DEXCLEANER_SUPPORT_FIXTURE_HOME to the isolated copied support-state fixture.")
+        }
+        let store = IncidentStore(home: fixtureHome)
+        let checkpoint = try XCTUnwrap(store.readCheckpoint().0)
+        let activity = store.load([DiagnosticOperation].self, named: "activity-v1.json", fallback: [])
+        let events = store.directory.appendingPathComponent("events-v1.jsonl")
+        let size = try XCTUnwrap((try FileManager.default.attributesOfItem(atPath: events.path)[.size] as? NSNumber)?.int64Value)
+        XCTAssertFalse(checkpoint.cleanShutdown)
+        XCTAssertEqual(activity.count, 100)
+        XCTAssertGreaterThan(size, 40_000_000)
+    }
+}
+
+@MainActor
+final class MainThreadResponsivenessTests: XCTestCase {
+    func testRecorderCallbackReturnsToMainActorWithin250Milliseconds() async throws {
+        let harness = try ReplayResponsivenessHarness.make()
+        defer { try? FileManager.default.removeItem(at: harness.home) }
+        let heartbeat = expectation(description: "main actor")
+        let started = ContinuousClock.now
+        harness.stream.deliver(harness.events(count: 10_000))
+        Task { @MainActor in heartbeat.fulfill() }
+        await fulfillment(of: [heartbeat], timeout: 2)
+        XCTAssertLessThan(started.duration(to: .now), .milliseconds(250))
+        try await harness.waitForReplay(eventID: 10_010)
+        XCTAssertLessThanOrEqual(harness.recorder.replayPublicationCount, 5)
+    }
+}
+
+@MainActor
+final class MenuBarResponsivenessTests: XCTestCase {
+    func testMenuCommandHeartbeatIsServicedWithinOneSecondDuringReplay() async throws {
+        let harness = try ReplayResponsivenessHarness.make()
+        defer { try? FileManager.default.removeItem(at: harness.home) }
+        let serviced = expectation(description: "menu command")
+        let started = ContinuousClock.now
+        harness.stream.deliver(harness.events(count: 10_000))
+        Task { @MainActor in serviced.fulfill() }
+        await fulfillment(of: [serviced], timeout: 2)
+        XCTAssertLessThan(started.duration(to: .now), .seconds(1))
+        try await harness.waitForReplay(eventID: 10_010)
+    }
+}
+
+@MainActor
+final class WindowResponsivenessTests: XCTestCase {
+    func testWindowAndQuitCommandHeartbeatsRemainServiceableDuringReplay() async throws {
+        let harness = try ReplayResponsivenessHarness.make()
+        defer { try? FileManager.default.removeItem(at: harness.home) }
+        let window = expectation(description: "window command")
+        let quit = expectation(description: "quit command")
+        let started = ContinuousClock.now
+        harness.stream.deliver(harness.events(count: 10_000))
+        Task { @MainActor in window.fulfill(); quit.fulfill() }
+        await fulfillment(of: [window, quit], timeout: 2)
+        XCTAssertLessThan(started.duration(to: .now), .seconds(1))
+        try await harness.waitForReplay(eventID: 10_010)
+    }
+}
+
+@MainActor
+final class FSEventsReplayStressTests: XCTestCase {
+    func testDuplicateHeavyReplayIsBoundedWithoutCheckpointAmplification() async throws {
+        let harness = try ReplayResponsivenessHarness.make()
+        defer { try? FileManager.default.removeItem(at: harness.home) }
+        harness.stream.deliver(harness.events(count: 10_000, duplicate: true))
+        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+        while harness.recorder.filesystemEventRecoveryState.duplicatesSuppressed != 10_000,
+              ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(harness.recorder.filesystemEventRecoveryState.duplicatesSuppressed, 10_000)
+        XCTAssertEqual(harness.probe.counts.checkpoints, 0)
+        XCTAssertLessThanOrEqual(harness.recorder.replayPublicationCount, 5)
+    }
+}
+
+@MainActor
+final class ActivityCenterCoalescingTests: XCTestCase {
+    func testReplayUpdatesOneSessionEntryWithoutDisplacingExistingHistory() async throws {
+        let existing = (0..<99).map {
+            DiagnosticOperation(
+                type: "Historical \($0)", phase: "Complete", state: .complete,
+                startedAt: Date(timeIntervalSince1970: TimeInterval($0)), endedAt: Date(timeIntervalSince1970: TimeInterval($0)),
+                processed: 1, total: 1, bytes: 0, summary: "Retained", reportPath: nil
+            )
+        }
+        let harness = try ReplayResponsivenessHarness.make(existingOperations: existing)
+        defer { try? FileManager.default.removeItem(at: harness.home) }
+        harness.stream.deliver(harness.events(count: 10_000))
+        try await harness.waitForReplay(eventID: 10_010)
+        XCTAssertEqual(harness.recorder.operations.filter { $0.type == "FSEvents recovery" }.count, 1)
+        XCTAssertEqual(harness.recorder.operations.filter { $0.type.hasPrefix("Historical") }.count, 99)
+        XCTAssertEqual(harness.recorder.operations.first?.processed, 10_000)
+    }
+}
+
+@MainActor
+final class SupportStateCompatibilityTests: XCTestCase {
+    func testEmptyAndMalformedActivityStateLoadWithoutBlockingRecovery() throws {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent("DexCleanerSupportCompatibility-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: home) }
+        let store = IncidentStore(home: home.path)
+        try FileManager.default.createDirectory(at: store.directory, withIntermediateDirectories: true)
+        try Data("{malformed".utf8).write(to: store.directory.appendingPathComponent("activity-v1.json"), options: .atomic)
+        let recorder = StorageIncidentRecorder(store: store)
+        XCTAssertTrue(recorder.operations.isEmpty)
+        XCTAssertTrue(recorder.incidents.isEmpty)
     }
 }
 

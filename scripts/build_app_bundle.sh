@@ -12,7 +12,7 @@ APP="$STAGE_ROOT/DexCleaner.app"
 CONTENTS="$APP/Contents"
 MACOS="$CONTENTS/MacOS"
 IDENTITY="${DEXCLEANER_CODESIGN_IDENTITY:--}"
-VERSION="1.3.1"
+VERSION="1.3.2"
 RESOURCE_BUNDLE_NAME="DexCleaner_DexCleanerCore.bundle"
 MANIFEST_NAME="CleanupManifest.json"
 
