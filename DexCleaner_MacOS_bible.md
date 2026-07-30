@@ -2,7 +2,7 @@
 
 ## Canonical state
 
-- Canonical repository: `/Users/andrew/Library/Mobile Documents/com~apple~CloudDocs/Projects/DexCleaner_MacOS.nosync/repo`
+- Canonical repository: `/Users/andrew/DexCleaner`
 - Working branch: `codex/final-storage-forensics`
 - Starting commit: `9883f6b20929824c38226e6e7cf0850d1f144d17`
 - Preserved user work: the pre-existing untracked `.resurrection/` files remain untouched.

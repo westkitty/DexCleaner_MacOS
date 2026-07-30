@@ -89,7 +89,7 @@ Date: 2026-07-28 (America/Detroit)
 
 ## Scope and identity
 
-- Canonical worktree: `/Users/andrew/Library/Mobile Documents/com~apple~CloudDocs/Projects/DexCleaner_MacOS.nosync/repo`
+- Canonical worktree: `/Users/andrew/DexCleaner`
 - Branch and base commit: `codex/final-storage-forensics` at `9883f6b20929824c38226e6e7cf0850d1f144d17`
 - Hardware and operating system: Apple Silicon Mac, macOS 26.5.2, 8 GB unified memory.
 - Installed application: `/Applications/DexCleaner.app`, version `1.2.0`, bundle ID `ca.westcat.DexCleaner`.
