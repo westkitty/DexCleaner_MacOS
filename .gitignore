@@ -1,4 +1,5 @@
 .build/
+.build-final/
 .swiftpm/
 .DS_Store
 *.dmg

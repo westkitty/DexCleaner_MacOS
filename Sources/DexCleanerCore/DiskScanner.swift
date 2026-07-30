@@ -8,7 +8,7 @@ public struct DiskScanner {
     ]
 
     public let home: String
-    public let appVersion = "1.0.0"
+    public let appVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Unknown"
     public let excludedLargeFileRelativePaths: [String]
     private let cache: ScanCache
 
@@ -30,6 +30,16 @@ public struct DiskScanner {
         var warnings: [String] = []
 
         let status = diskStatus(issues: &issues)
+        switch status.state {
+        case .disputed:
+            issues.append(ScanIssue(kind: .measurement, area: "Storage capacity", detail: status.detail))
+        case .partial:
+            issues.append(ScanIssue(kind: .filesystem, area: "Storage capacity", detail: status.detail))
+        case .failed:
+            issues.append(ScanIssue(kind: .commandFailure, area: "Storage capacity", detail: status.detail))
+        case .fresh, .cached:
+            break
+        }
         if !CleanupCatalog.isAvailable {
             let detail = CleanupCatalog.validationErrors.joined(separator: " ")
             issues.append(ScanIssue(kind: .manifest, area: "Cleanup authority", detail: detail))
@@ -41,16 +51,7 @@ public struct DiskScanner {
         }
 
         if !currentTaskIsCancelled { items.append(contentsOf: builtInAuditTargets(issues: &issues)) }
-        if !currentTaskIsCancelled { items.append(contentsOf: gitTemporaryPackAuditItems(issues: &issues)) }
         if !currentTaskIsCancelled { items.append(contentsOf: protectedPathMarkers()) }
-        if !currentTaskIsCancelled { items.append(contentsOf: auditUsageItems(issues: &issues)) }
-
-        var largeFiles: [ScanItem] = []
-        if !currentTaskIsCancelled {
-            largeFiles = largeFileAuditItems(issues: &issues)
-            items.append(contentsOf: largeFiles)
-            items.append(contentsOf: extensionBreakdownItems(from: largeFiles))
-        }
 
         let diagnostics: [PermissionDiagnostic]
         if currentTaskIsCancelled {
@@ -74,7 +75,7 @@ public struct DiskScanner {
         if currentTaskIsCancelled {
             issues.append(ScanIssue(kind: .cancellation, area: "Scan", detail: "The scan was cancelled before all areas completed."))
         }
-        let hasUsableData = status.available != "Unknown" || items.contains(where: { $0.sizeBytes > 0 })
+        let hasUsableData = status.availableForWorkBytes != nil || items.contains(where: { $0.sizeBytes > 0 })
         let completeness = Self.determineCompleteness(
             cancelled: currentTaskIsCancelled,
             hasUsableData: hasUsableData,
@@ -129,27 +130,7 @@ public struct DiskScanner {
     }
 
     public func diskStatus(issues: inout [ScanIssue]) -> DiskStatus {
-        let primary = Shell.run("/bin/df", ["-h", "/System/Volumes/Data"], timeout: 5)
-        let result = primary.status == 0 ? primary : Shell.run("/bin/df", ["-h", "/"], timeout: 5)
-        if result.cancelled {
-            issues.append(ScanIssue(kind: .cancellation, area: "Disk status", detail: "Disk status command was cancelled."))
-            return DiskStatus()
-        }
-        if result.timedOut {
-            issues.append(ScanIssue(kind: .timeout, area: "Disk status", detail: "df did not finish within five seconds."))
-            return DiskStatus()
-        }
-        let lines = result.stdout.split(separator: "\n")
-        guard result.status == 0, lines.count >= 2 else {
-            issues.append(ScanIssue(kind: .commandFailure, area: "Disk status", detail: result.stderr.isEmpty ? "df returned no usable output." : result.stderr))
-            return DiskStatus()
-        }
-        let parts = lines[1].split(whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init)
-        guard parts.count >= 5 else {
-            issues.append(ScanIssue(kind: .commandFailure, area: "Disk status", detail: "df output format was not recognized."))
-            return DiskStatus()
-        }
-        return DiskStatus(filesystem: parts[0], size: parts[1], used: parts[2], available: parts[3], capacity: parts[4])
+        StorageCapacityProvider.measure()
     }
 
     public func gitTemporaryPackAuditItems(issues: inout [ScanIssue]) -> [ScanItem] {
@@ -189,12 +170,6 @@ public struct DiskScanner {
         return definitions.compactMap { id, relativePath, name, category, risk, explanation, recovery in
             let path = URL(fileURLWithPath: home).appendingPathComponent(relativePath).path
             guard FileManager.default.fileExists(atPath: path) else { return nil }
-            var size: Int64 = 0
-            var measuredAt: Date?
-            var source: MeasurementSource = .notMeasured
-            if category != .cloudStorage, let measurement = measuredSize(path: path, timeout: 8, area: name, issues: &issues) {
-                size = measurement.bytes; measuredAt = measurement.date; source = measurement.source
-            }
             return ScanItem(
                 manifestID: id,
                 path: path,
@@ -202,13 +177,13 @@ public struct DiskScanner {
                 group: category == .cloudStorage ? "Cloud Storage" : "Xcode",
                 category: category,
                 risk: risk,
-                sizeBytes: size,
+                sizeBytes: 0,
                 explanation: explanation,
                 recoveryNote: recovery,
                 action: .auditOnly,
                 isSelected: false,
-                measuredAt: measuredAt,
-                measurementSource: source
+                measuredAt: nil,
+                measurementSource: .notMeasured
             )
         }
     }

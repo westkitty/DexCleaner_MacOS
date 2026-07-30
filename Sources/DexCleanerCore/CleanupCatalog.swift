@@ -112,7 +112,7 @@ public enum ManifestValidator {
             if !seenPaths.insert(path).inserted { errors.append("Duplicate manifest path: \(path).") }
             if forbiddenBroadRoots.contains(path) { errors.append("Target \(id) is a forbidden broad root: \(path).") }
             let rootedPath = "/" + path
-            for fragment in manifest.forbiddenFragments where rootedPath.contains(fragment) {
+            for fragment in manifest.forbiddenFragments where rootedPath.localizedCaseInsensitiveContains(fragment) {
                 errors.append("Target \(id) conflicts with forbidden fragment \(fragment).")
             }
             if entry.risk != .safe { errors.append("Cleanup authority manifest target \(id) is not Safe.") }
@@ -182,7 +182,7 @@ public enum CleanupCatalog {
     }
 
     private static func loadManifest() -> ManifestLoadResult {
-        guard let url = Bundle.module.url(forResource: "CleanupManifest", withExtension: "json") else {
+        guard let url = manifestURL() else {
             return ManifestLoadResult(manifest: nil, checksum: "unavailable", errors: ["Bundled cleanup manifest is missing. Cleanup is disabled."])
         }
         do {
@@ -197,6 +197,17 @@ public enum CleanupCatalog {
         }
     }
 
+    private static func manifestURL() -> URL? {
+        // SwiftPM's generated Bundle.module accessor is correct for package tests and CLI builds.
+        // A signed macOS .app keeps nested bundles in Contents/Resources, where root-level files are not sealable.
+        if Bundle.main.bundleURL.pathExtension == "app",
+           let resourceURL = Bundle.main.resourceURL?.appendingPathComponent("DexCleaner_DexCleanerCore.bundle/Contents/Resources/CleanupManifest.json"),
+           FileManager.default.isReadableFile(atPath: resourceURL.path) {
+            return resourceURL
+        }
+        return Bundle.module.url(forResource: "CleanupManifest", withExtension: "json")
+    }
+
     private static func stableChecksum(_ data: Data) -> String {
         var hash: UInt64 = 14_695_981_039_346_656_037
         for byte in data {
@@ -209,6 +220,7 @@ public enum CleanupCatalog {
     private static let conservativeForbiddenFragments = [
         "/.cache", "/.antigravity", "/.antigravity_archive", "/Antigravity",
         "/Local Storage", "/Session Storage", "/IndexedDB", "/Service Worker",
+        "/Authentication", "/Accounts", "/Credentials", "/Cookies", "/Conversations", "/Sessions",
         "/User/globalStorage", "/User/workspaceStorage", "/User/History",
         "/Library/Keychains", "/Library/CloudStorage", "/iCloud Drive", "/Dropbox",
         "/OneDrive", "/Google Drive", "/Projects", "/Documents", "/Downloads",

@@ -10,11 +10,10 @@ public enum ReportWriter {
     ) throws -> URL {
         let formatter = ISO8601DateFormatter()
         let stamp = formatter.string(from: report.timestamp).replacingOccurrences(of: ":", with: "-")
-        let directory = destinationDirectory
-            ?? FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask).first
-            ?? URL(fileURLWithPath: home).appendingPathComponent("Desktop")
+        let directory = destinationDirectory ?? defaultDirectory(home: home)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let modeSlug = report.mode.rawValue.lowercased().replacingOccurrences(of: " ", with: "-")
+        let reportLabel = reportLabel(for: report)
+        let modeSlug = reportLabel.lowercased().replacingOccurrences(of: " ", with: "-")
         let ext = format == .markdown ? "md" : "json"
         let suffix = UUID().uuidString.prefix(8)
         let url = directory.appendingPathComponent("DexCleaner-\(modeSlug)-Report-\(stamp)-\(suffix).\(ext)")
@@ -32,6 +31,11 @@ public enum ReportWriter {
         return url
     }
 
+    public static func defaultDirectory(home: String = NSHomeDirectory()) -> URL {
+        URL(fileURLWithPath: home)
+            .appendingPathComponent("Library/Application Support/DexCleaner/Reports", isDirectory: true)
+    }
+
     public static func write(report: ScanReport, destinationDirectory: URL? = nil) throws -> URL {
         try write(report: report, format: .markdown, destinationDirectory: destinationDirectory)
     }
@@ -46,13 +50,13 @@ public enum ReportWriter {
         let failed = report.results.filter { $0.status == "Failed" }
         let moved = report.results.filter { $0.status == "Moved to Trash" }
 
-        var text = "# DexCleaner \(report.mode.rawValue) Report\n\n"
+        var text = "# DexCleaner \(reportLabel(for: report)) Report\n\n"
         text += "Generated: \(formatter.string(from: report.timestamp))\n\n"
         text += "## Authority and completeness\n\n"
         text += "- App version: \(report.appVersion)\n"
         text += "- Manifest version: \(report.policyVersion)\n"
         text += "- Manifest checksum: \(report.manifestChecksum)\n"
-        text += "- Report mode: \(report.mode.rawValue)\n"
+        text += "- Report mode: \(reportLabel(for: report))\n"
         text += "- Scan completeness: \(report.completeness.rawValue)\n"
         text += "- Scan duration: \(String(format: "%.2f", report.scanDurationSeconds)) seconds\n"
         text += "- Access check: \(report.accessStatus)\n"
@@ -62,10 +66,18 @@ public enum ReportWriter {
 
         text += "## Disk\n\n"
         text += "- Filesystem: \(report.diskStatus.filesystem)\n"
-        text += "- Size: \(report.diskStatus.size)\n"
-        text += "- Used: \(report.diskStatus.used)\n"
-        text += "- Available: \(report.diskStatus.available)\n"
-        text += "- Capacity: \(report.diskStatus.capacity)\n\n"
+        text += "- Total capacity: \(report.diskStatus.size)\n"
+        text += "- Available for work: \(report.diskStatus.available)\n"
+        text += "- Immediately free: \(format(report.diskStatus.immediatelyFreeBytes))\n"
+        text += "- Used estimate: \(report.diskStatus.used)\n"
+        text += "- Potentially purgeable: \(format(report.diskStatus.potentiallyPurgeableBytes))\n"
+        text += "- Measurement status: \(report.diskStatus.state.rawValue)\n"
+        text += "- Measurement source: \(report.diskStatus.source)\n"
+        text += "- Measurement detail: \(report.diskStatus.detail)\n"
+        if let measuredAt = report.diskStatus.measuredAt {
+            text += "- Measured: \(formatter.string(from: measuredAt))\n"
+        }
+        text += "\n"
 
         text += "## Summary\n\n"
         text += "- Cleanup candidates: \(cleanable.count)\n"
@@ -83,6 +95,8 @@ public enum ReportWriter {
             text += "- Created: \(formatter.string(from: plan.createdAt))\n"
             text += "- Manifest version: \(plan.manifestVersion)\n"
             text += "- Manifest checksum: \(plan.manifestChecksum)\n"
+            text += "- Selection signature: \(plan.selectionSignature)\n"
+            text += "- Expires: \(formatter.string(from: plan.expiresAt))\n"
             text += "- Planned items: \(plan.items.count)\n"
             text += "- Planned bytes: \(ByteCountFormatter.string(fromByteCount: plan.totalBytes, countStyle: .file))\n\n"
             for item in plan.items {
@@ -158,6 +172,7 @@ public enum ReportWriter {
             var value = result
             value.path = redactPath(result.path)
             value.detail = redactText(result.detail)
+            value.resultingPath = result.resultingPath.map(redactPath)
             return value
         }
         copy.storageSummaries = copy.storageSummaries.map { summary in
@@ -190,7 +205,9 @@ public enum ReportWriter {
                     displayName: redactText(item.displayName),
                     sizeBytes: item.sizeBytes,
                     identity: item.identity,
-                    safetyReason: redactText(item.safetyReason)
+                    safetyReason: redactText(item.safetyReason),
+                    risk: item.risk,
+                    action: item.action
                 )
             }
             copy.cleanupPlan = CleanupPlan(
@@ -198,10 +215,17 @@ public enum ReportWriter {
                 createdAt: plan.createdAt,
                 manifestVersion: plan.manifestVersion,
                 manifestChecksum: plan.manifestChecksum,
+                selectionSignature: "redacted",
                 items: items
             )
         }
         return copy
+    }
+
+    public static func reportLabel(for report: ScanReport) -> String {
+        if report.mode == .cleanup { return "Cleanup" }
+        if report.mode == .dryRun { return "Preview" }
+        return report.completeness == .notRun ? "Status" : "Scan"
     }
 
     private static func appendStorageSummary(_ summaries: [StorageSummaryItem], into text: inout String) {
@@ -253,5 +277,10 @@ public enum ReportWriter {
 
     private static func escapeBackticks(_ text: String) -> String {
         text.replacingOccurrences(of: "`", with: "\\`")
+    }
+
+    private static func format(_ bytes: Int64?) -> String {
+        guard let bytes else { return "Unavailable" }
+        return ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
     }
 }

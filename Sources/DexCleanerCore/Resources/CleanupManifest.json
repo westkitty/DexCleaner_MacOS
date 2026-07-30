@@ -16,6 +16,6 @@
     {"id":"vscode-cache","relativePath":"Library/Application Support/Code/Cache","displayName":"VS Code runtime cache","group":"VS Code","category":"Exact cache","risk":"Safe","explanation":"VS Code runtime cache only, not workspace or global state.","recoveryNote":"VS Code will regenerate runtime cache after launch.","defaultSelected":false}
   ],
   "forbiddenFragments": [
-    "/.cache","/.antigravity","/.antigravity_archive","/Antigravity","/Local Storage","/Session Storage","/IndexedDB","/Service Worker","/User/globalStorage","/User/workspaceStorage","/User/History","/Library/Keychains","/Library/CloudStorage","/iCloud Drive","/Dropbox","/OneDrive","/Google Drive","/Library/Application Support/BraveSoftware","/Library/Application Support/Google/DriveFS","/Library/Application Support/Google/Chrome","/Library/Application Support/Claude/vm_bundles","/Projects","/Documents","/Downloads","/Movies","/Pictures"
+    "/.cache","/.antigravity","/.antigravity_archive","/Antigravity","/Local Storage","/Session Storage","/IndexedDB","/Service Worker","/Authentication","/Accounts","/Credentials","/Cookies","/Conversations","/Sessions","/User/globalStorage","/User/workspaceStorage","/User/History","/Library/Keychains","/Library/CloudStorage","/iCloud Drive","/Dropbox","/OneDrive","/Google Drive","/Library/Application Support/BraveSoftware","/Library/Application Support/Google/DriveFS","/Library/Application Support/Google/Chrome","/Library/Application Support/Claude/vm_bundles","/Projects","/Documents","/Downloads","/Movies","/Pictures"
   ]
 }

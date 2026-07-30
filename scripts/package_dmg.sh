@@ -3,14 +3,13 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
-APP="$ROOT/.build/DexCleaner.app"
-DIST="$ROOT/.build/dist"
+APP="${DEXCLEANER_APP_OUTPUT:-$HOME/Library/Application Support/DexCleaner/ReleaseCandidate/DexCleaner.app}"
+DIST="$ROOT/.build-final/dist-$(date -u +%Y%m%dT%H%M%SZ)"
 DMG="$DIST/DexCleaner.dmg"
 VOLUME="DexCleaner"
 
 bash ./scripts/build_app_bundle.sh
 command -v hdiutil >/dev/null 2>&1 || { echo "hdiutil is required. Run this on macOS." >&2; exit 1; }
-rm -rf "$DIST"
 mkdir -p "$DIST/stage"
 cp -R "$APP" "$DIST/stage/"
 ln -s /Applications "$DIST/stage/Applications"

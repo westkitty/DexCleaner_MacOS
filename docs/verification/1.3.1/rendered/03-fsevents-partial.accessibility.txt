@@ -1,0 +1,7 @@
+Production view: StorageIncidentsView
+Locale: en_US_POSIX
+Timezone: GMT
+Reduce Motion: enabled
+Fixed size: 1200x1800
+Required labels: Partial coverage | FSEvents Partial | Partial | No cleanup occurred
+Accessibility: Recorder status: Partial coverage | Reduce Motion is enabled | Ordinary local comparison directory | Already-local cloud comparison directory | Cloud provider name

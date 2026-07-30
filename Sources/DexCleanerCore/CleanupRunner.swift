@@ -35,7 +35,9 @@ public struct CleanupRunner {
                 displayName: item.displayName,
                 sizeBytes: item.sizeBytes,
                 identity: identity,
-                safetyReason: decision.reason
+                safetyReason: decision.reason,
+                risk: item.risk,
+                action: item.action
             ))
             let processNote = item.owningProcessRunning ? " The owning application appears to be running; close it before cleanup when practical." : ""
             results.append(CleanupResult(path: item.path, status: "Authorized for confirmation", detail: decision.reason + processNote))
@@ -45,6 +47,7 @@ public struct CleanupRunner {
         let plan = CleanupPlan(
             manifestVersion: CleanupCatalog.policyVersion,
             manifestChecksum: CleanupCatalog.manifestChecksum,
+            selectionSignature: CleanupPlan.signature(for: selected),
             items: planItems
         )
         return PreviewOutcome(results: results, plan: plan)
@@ -61,6 +64,9 @@ public struct CleanupRunner {
         let normalizedPaths = plan.items.map { SafetyEngine.lexicalNormalize($0.path) }
         guard Set(normalizedPaths).count == normalizedPaths.count else {
             return [CleanupResult(path: "plan://\(plan.id.uuidString)", status: "Blocked", detail: "Cleanup plan contains duplicate target paths.")]
+        }
+        guard plan.selectionSignature == CleanupPlan.signature(for: plan.items) else {
+            return [CleanupResult(path: "plan://\(plan.id.uuidString)", status: "Blocked", detail: "Cleanup plan selection signature is invalid.")]
         }
         guard plan.manifestVersion == CleanupCatalog.policyVersion,
               plan.manifestChecksum == CleanupCatalog.manifestChecksum else {
@@ -85,7 +91,12 @@ public struct CleanupRunner {
                 try FileManager.default.trashItem(at: url, resultingItemURL: &resultingURL)
                 cache.invalidateTreeAndAncestors(path: item.path, upTo: home)
                 let destination = resultingURL?.path ?? "Finder Trash"
-                results.append(CleanupResult(path: item.path, status: "Moved to Trash", detail: "Moved to \(destination). Space is not guaranteed to be free until Trash is emptied manually."))
+                results.append(CleanupResult(
+                    path: item.path,
+                    status: "Moved to Trash",
+                    detail: "Moved to \(destination). Space is not guaranteed to be free until Trash is emptied manually.",
+                    resultingPath: resultingURL?.path
+                ))
             } catch {
                 results.append(CleanupResult(path: item.path, status: "Failed", detail: error.localizedDescription))
             }

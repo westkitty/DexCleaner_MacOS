@@ -1,0 +1,7 @@
+Production view: StorageIncidentsView
+Locale: en_US_POSIX
+Timezone: GMT
+Reduce Motion: enabled
+Fixed size: 1200x1800
+Required labels: Emergency reserve | Ready | Actual physical allocation | Rebuild Reserve
+Accessibility: Recorder status: Recording | Reduce Motion is enabled | Ordinary local comparison directory | Already-local cloud comparison directory | Cloud provider name

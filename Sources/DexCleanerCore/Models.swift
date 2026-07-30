@@ -6,6 +6,14 @@ public enum MeasurementSource: String, Codable, Sendable {
     case notMeasured = "Not measured"
 }
 
+public enum StorageMeasurementState: String, Codable, Sendable {
+    case fresh = "Fresh"
+    case cached = "Cached"
+    case partial = "Partial"
+    case disputed = "Disputed"
+    case failed = "Failed"
+}
+
 public enum ScanCompleteness: String, Codable, Sendable {
     case complete = "Complete"
     case partial = "Partial"
@@ -21,6 +29,7 @@ public enum ScanIssueKind: String, Codable, Sendable {
     case manifest = "Manifest unavailable"
     case cancellation = "Cancelled"
     case filesystem = "Filesystem changed"
+    case measurement = "Measurement disagreement"
 }
 
 public struct ScanIssue: Identifiable, Hashable, Codable, Sendable {
@@ -185,12 +194,14 @@ public struct CleanupResult: Identifiable, Hashable, Codable, Sendable {
     public var path: String
     public var status: String
     public var detail: String
+    public var resultingPath: String?
 
-    public init(id: UUID = UUID(), path: String, status: String, detail: String) {
+    public init(id: UUID = UUID(), path: String, status: String, detail: String, resultingPath: String? = nil) {
         self.id = id
         self.path = path
         self.status = status
         self.detail = detail
+        self.resultingPath = resultingPath
     }
 }
 
@@ -203,8 +214,21 @@ public struct CleanupPlanItem: Identifiable, Hashable, Codable, Sendable {
     public let sizeBytes: Int64
     public let identity: FileIdentity
     public let safetyReason: String
+    public let risk: RiskLevel
+    public let action: CleanupAction
 
-    public init(id: UUID = UUID(), scanItemID: UUID, manifestID: String, path: String, displayName: String, sizeBytes: Int64, identity: FileIdentity, safetyReason: String) {
+    public init(
+        id: UUID = UUID(),
+        scanItemID: UUID,
+        manifestID: String,
+        path: String,
+        displayName: String,
+        sizeBytes: Int64,
+        identity: FileIdentity,
+        safetyReason: String,
+        risk: RiskLevel = .safe,
+        action: CleanupAction = .moveToTrash
+    ) {
         self.id = id
         self.scanItemID = scanItemID
         self.manifestID = manifestID
@@ -213,6 +237,8 @@ public struct CleanupPlanItem: Identifiable, Hashable, Codable, Sendable {
         self.sizeBytes = sizeBytes
         self.identity = identity
         self.safetyReason = safetyReason
+        self.risk = risk
+        self.action = action
     }
 }
 
@@ -221,17 +247,57 @@ public struct CleanupPlan: Identifiable, Hashable, Codable, Sendable {
     public let createdAt: Date
     public let manifestVersion: String
     public let manifestChecksum: String
+    public let selectionSignature: String
     public let items: [CleanupPlanItem]
 
-    public init(id: UUID = UUID(), createdAt: Date = Date(), manifestVersion: String, manifestChecksum: String, items: [CleanupPlanItem]) {
+    public init(
+        id: UUID = UUID(),
+        createdAt: Date = Date(),
+        manifestVersion: String,
+        manifestChecksum: String,
+        selectionSignature: String? = nil,
+        items: [CleanupPlanItem]
+    ) {
         self.id = id
         self.createdAt = createdAt
         self.manifestVersion = manifestVersion
         self.manifestChecksum = manifestChecksum
+        self.selectionSignature = selectionSignature ?? Self.signature(for: items)
         self.items = items
     }
 
     public var totalBytes: Int64 { items.reduce(0) { $0 + $1.sizeBytes } }
+    public var expiresAt: Date { createdAt.addingTimeInterval(PreviewAuthorization.maximumPlanAge) }
+
+    public static func signature(for items: [ScanItem]) -> String {
+        items.map {
+            [
+                $0.id.uuidString,
+                $0.manifestID ?? "none",
+                SafetyEngine.lexicalNormalize($0.path),
+                String($0.sizeBytes),
+                $0.risk.rawValue,
+                $0.action.rawValue
+            ].joined(separator: "|")
+        }
+        .sorted()
+        .joined(separator: "\n")
+    }
+
+    public static func signature(for items: [CleanupPlanItem]) -> String {
+        items.map {
+            [
+                $0.scanItemID.uuidString,
+                $0.manifestID,
+                SafetyEngine.lexicalNormalize($0.path),
+                String($0.sizeBytes),
+                $0.risk.rawValue,
+                $0.action.rawValue
+            ].joined(separator: "|")
+        }
+        .sorted()
+        .joined(separator: "\n")
+    }
 }
 
 public struct PreviewOutcome: Sendable {
@@ -250,13 +316,49 @@ public struct DiskStatus: Hashable, Codable, Sendable {
     public var used: String
     public var available: String
     public var capacity: String
+    public var totalBytes: Int64?
+    public var immediatelyFreeBytes: Int64?
+    public var availableForWorkBytes: Int64?
+    public var opportunisticBytes: Int64?
+    public var potentiallyPurgeableBytes: Int64?
+    public var usedEstimateBytes: Int64?
+    public var state: StorageMeasurementState
+    public var measuredAt: Date?
+    public var source: String
+    public var detail: String
 
-    public init(filesystem: String = "Unknown", size: String = "Unknown", used: String = "Unknown", available: String = "Unknown", capacity: String = "Unknown") {
+    public init(
+        filesystem: String = "Unknown",
+        size: String = "Unknown",
+        used: String = "Unknown",
+        available: String = "Unknown",
+        capacity: String = "Unknown",
+        totalBytes: Int64? = nil,
+        immediatelyFreeBytes: Int64? = nil,
+        availableForWorkBytes: Int64? = nil,
+        opportunisticBytes: Int64? = nil,
+        potentiallyPurgeableBytes: Int64? = nil,
+        usedEstimateBytes: Int64? = nil,
+        state: StorageMeasurementState = .failed,
+        measuredAt: Date? = nil,
+        source: String = "Unavailable",
+        detail: String = "No storage measurement is available."
+    ) {
         self.filesystem = filesystem
         self.size = size
         self.used = used
         self.available = available
         self.capacity = capacity
+        self.totalBytes = totalBytes
+        self.immediatelyFreeBytes = immediatelyFreeBytes
+        self.availableForWorkBytes = availableForWorkBytes
+        self.opportunisticBytes = opportunisticBytes
+        self.potentiallyPurgeableBytes = potentiallyPurgeableBytes
+        self.usedEstimateBytes = usedEstimateBytes
+        self.state = state
+        self.measuredAt = measuredAt
+        self.source = source
+        self.detail = detail
     }
 }
 

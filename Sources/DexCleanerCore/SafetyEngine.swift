@@ -31,7 +31,7 @@ public enum SafetyEngine {
         ]
         guard !broadRoots.contains(path) else { return SafetyDecision(allowed: false, reason: "Refusing broad root path.") }
 
-        for fragment in CleanupCatalog.forbiddenFragments where path.contains(fragment) {
+        for fragment in CleanupCatalog.forbiddenFragments where path.localizedCaseInsensitiveContains(fragment) {
             return SafetyDecision(allowed: false, reason: "Protected state, session, cloud, project, or user-data path: \(fragment)")
         }
         guard !containsSymlinkComponent(path: path, home: homePath) else {
@@ -50,6 +50,9 @@ public enum SafetyEngine {
     }
 
     public static func decision(for planItem: CleanupPlanItem, home: String = NSHomeDirectory()) -> SafetyDecision {
+        guard planItem.risk == .safe, planItem.action == .moveToTrash else {
+            return SafetyDecision(allowed: false, reason: "Previewed target no longer carries Safe Trash-only authority.")
+        }
         guard let entry = CleanupCatalog.entry(forManifestID: planItem.manifestID) else {
             return SafetyDecision(allowed: false, reason: "Manifest entry no longer exists.")
         }

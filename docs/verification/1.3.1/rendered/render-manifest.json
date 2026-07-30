@@ -1,0 +1,280 @@
+[
+  {
+    "accessibilityText" : [
+      "Recorder status: Recording",
+      "Reduce Motion is enabled",
+      "Ordinary local comparison directory",
+      "Already-local cloud comparison directory",
+      "Cloud provider name"
+    ],
+    "height" : 1800,
+    "meaningfulPixelBytes" : 519069,
+    "name" : "01-recorder-armed",
+    "pngBytes" : 150360,
+    "productionView" : "StorageIncidentsView",
+    "reduceMotion" : true,
+    "renderedText" : [
+      "Storage Incidents",
+      "Recording",
+      "Complete",
+      "Available for work",
+      "Investigate Now",
+      "Recorder status: Recording",
+      "Reduce Motion is enabled",
+      "Ordinary local comparison directory",
+      "Already-local cloud comparison directory",
+      "Cloud provider name"
+    ],
+    "requiredText" : [
+      "Storage Incidents",
+      "Recording",
+      "Complete",
+      "Available for work",
+      "Investigate Now"
+    ],
+    "width" : 1200
+  },
+  {
+    "accessibilityText" : [
+      "Recorder status: Investigating",
+      "Reduce Motion is enabled",
+      "Ordinary local comparison directory",
+      "Already-local cloud comparison directory",
+      "Cloud provider name",
+      "Cancel active diagnostic operation",
+      "Operation in progress"
+    ],
+    "height" : 1800,
+    "meaningfulPixelBytes" : 541945,
+    "name" : "02-active-incident",
+    "pngBytes" : 167095,
+    "productionView" : "StorageIncidentsView",
+    "reduceMotion" : true,
+    "renderedText" : [
+      "Investigating",
+      "Cancel",
+      "Measuring allocation",
+      "4 of 10",
+      "Operation in progress",
+      "Recorder status: Investigating",
+      "Reduce Motion is enabled",
+      "Ordinary local comparison directory",
+      "Already-local cloud comparison directory",
+      "Cloud provider name",
+      "Cancel active diagnostic operation",
+      "Operation in progress"
+    ],
+    "requiredText" : [
+      "Investigating",
+      "Cancel",
+      "Measuring allocation",
+      "4 of 10",
+      "Operation in progress"
+    ],
+    "width" : 1200
+  },
+  {
+    "accessibilityText" : [
+      "Recorder status: Partial coverage",
+      "Reduce Motion is enabled",
+      "Ordinary local comparison directory",
+      "Already-local cloud comparison directory",
+      "Cloud provider name"
+    ],
+    "height" : 1800,
+    "meaningfulPixelBytes" : 521850,
+    "name" : "03-fsevents-partial",
+    "pngBytes" : 155682,
+    "productionView" : "StorageIncidentsView",
+    "reduceMotion" : true,
+    "renderedText" : [
+      "Partial coverage",
+      "FSEvents Partial",
+      "Partial",
+      "No cleanup occurred",
+      "Recorder status: Partial coverage",
+      "Reduce Motion is enabled",
+      "Ordinary local comparison directory",
+      "Already-local cloud comparison directory",
+      "Cloud provider name"
+    ],
+    "requiredText" : [
+      "Partial coverage",
+      "FSEvents Partial",
+      "Partial",
+      "No cleanup occurred"
+    ],
+    "width" : 1200
+  },
+  {
+    "accessibilityText" : [
+      "Recorder status: Recording",
+      "Reduce Motion is enabled",
+      "Ordinary local comparison directory",
+      "Already-local cloud comparison directory",
+      "Cloud provider name"
+    ],
+    "height" : 1800,
+    "meaningfulPixelBytes" : 573435,
+    "name" : "04-strong-pattern",
+    "pngBytes" : 186564,
+    "productionView" : "StorageIncidentsView",
+    "reduceMotion" : true,
+    "renderedText" : [
+      "Repeated patterns",
+      "Strong repeated pattern",
+      "4 occurrences",
+      "Diagnostic correlation only",
+      "Recorder status: Recording",
+      "Reduce Motion is enabled",
+      "Ordinary local comparison directory",
+      "Already-local cloud comparison directory",
+      "Cloud provider name"
+    ],
+    "requiredText" : [
+      "Repeated patterns",
+      "Strong repeated pattern",
+      "4 occurrences",
+      "Diagnostic correlation only"
+    ],
+    "width" : 1200
+  },
+  {
+    "accessibilityText" : [
+      "Recorder status: Recording",
+      "Reduce Motion is enabled",
+      "Ordinary local comparison directory",
+      "Already-local cloud comparison directory",
+      "Cloud provider name"
+    ],
+    "height" : 1800,
+    "meaningfulPixelBytes" : 545541,
+    "name" : "05-local-cloud-comparison",
+    "pngBytes" : 169067,
+    "productionView" : "StorageIncidentsView",
+    "reduceMotion" : true,
+    "renderedText" : [
+      "Local and cloud comparison",
+      "Strong bounded match",
+      "Complete",
+      "Safe actions",
+      "Diagnostic only",
+      "Recorder status: Recording",
+      "Reduce Motion is enabled",
+      "Ordinary local comparison directory",
+      "Already-local cloud comparison directory",
+      "Cloud provider name"
+    ],
+    "requiredText" : [
+      "Local and cloud comparison",
+      "Strong bounded match",
+      "Complete",
+      "Safe actions",
+      "Diagnostic only"
+    ],
+    "width" : 1200
+  },
+  {
+    "accessibilityText" : [
+      "Recorder status: Recording",
+      "Reduce Motion is enabled",
+      "Ordinary local comparison directory",
+      "Already-local cloud comparison directory",
+      "Cloud provider name"
+    ],
+    "height" : 1800,
+    "meaningfulPixelBytes" : 520686,
+    "name" : "06-emergency-reserve",
+    "pngBytes" : 154381,
+    "productionView" : "StorageIncidentsView",
+    "reduceMotion" : true,
+    "renderedText" : [
+      "Emergency reserve",
+      "Ready",
+      "Actual physical allocation",
+      "Rebuild Reserve",
+      "Recorder status: Recording",
+      "Reduce Motion is enabled",
+      "Ordinary local comparison directory",
+      "Already-local cloud comparison directory",
+      "Cloud provider name"
+    ],
+    "requiredText" : [
+      "Emergency reserve",
+      "Ready",
+      "Actual physical allocation",
+      "Rebuild Reserve"
+    ],
+    "width" : 1200
+  },
+  {
+    "accessibilityText" : [
+      "Recorder status: Recording",
+      "Reduce Motion is enabled",
+      "Ordinary local comparison directory",
+      "Already-local cloud comparison directory",
+      "Cloud provider name"
+    ],
+    "height" : 1800,
+    "meaningfulPixelBytes" : 527133,
+    "name" : "07-deep-trace",
+    "pngBytes" : 155914,
+    "productionView" : "StorageIncidentsView",
+    "reduceMotion" : true,
+    "renderedText" : [
+      "Deep incident trace",
+      "Cancelled",
+      "metadata",
+      "diagnostic only",
+      "Recorder status: Recording",
+      "Reduce Motion is enabled",
+      "Ordinary local comparison directory",
+      "Already-local cloud comparison directory",
+      "Cloud provider name"
+    ],
+    "requiredText" : [
+      "Deep incident trace",
+      "Cancelled",
+      "metadata",
+      "diagnostic only"
+    ],
+    "width" : 1200
+  },
+  {
+    "accessibilityText" : [
+      "Recorder status: Recording",
+      "Reduce Motion is enabled",
+      "Ordinary local comparison directory",
+      "Already-local cloud comparison directory",
+      "Cloud provider name"
+    ],
+    "height" : 1800,
+    "meaningfulPixelBytes" : 545518,
+    "name" : "08-activity-center",
+    "pngBytes" : 171823,
+    "productionView" : "StorageIncidentsView",
+    "reduceMotion" : true,
+    "renderedText" : [
+      "Activity Center",
+      "Complete",
+      "Partial",
+      "Cancelled",
+      "Failed",
+      "Retained completion summary",
+      "Recorder status: Recording",
+      "Reduce Motion is enabled",
+      "Ordinary local comparison directory",
+      "Already-local cloud comparison directory",
+      "Cloud provider name"
+    ],
+    "requiredText" : [
+      "Activity Center",
+      "Complete",
+      "Partial",
+      "Cancelled",
+      "Failed",
+      "Retained completion summary"
+    ],
+    "width" : 1200
+  }
+]

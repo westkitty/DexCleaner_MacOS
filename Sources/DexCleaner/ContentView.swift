@@ -4,7 +4,9 @@ import SwiftUI
 struct ContentView: View {
     @EnvironmentObject private var model: AppModel
     @State private var selectedTab = ReviewTab.selected
-    @State private var showCleanupConfirmation = false
+    @State private var primarySection = PrimarySection.review
+
+    enum PrimarySection: String, CaseIterable, Identifiable { case incidents = "Storage Incidents", review = "Review", history = "Storage History", drivers = "Storage Drivers"; var id: String { rawValue } }
 
     enum ReviewTab: String, CaseIterable, Identifiable {
         case selected = "Selected"
@@ -24,15 +26,26 @@ struct ContentView: View {
                 metrics
                 controls
                 filterBar
-                reviewTabs
+                Picker("Section", selection: $primarySection) { ForEach(PrimarySection.allCases) { Text($0.rawValue).tag($0) } }
+                    .pickerStyle(.segmented).frame(maxWidth: 560)
+                if primarySection == .incidents { StorageIncidentsView().environmentObject(model) }
+                else if primarySection == .review { reviewTabs }
+                else if primarySection == .history { StorageHistoryView().environmentObject(model) }
+                else { StorageDriversView().environmentObject(model) }
                 reportControls
             }
             .padding(18)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(minWidth: 760, minHeight: 620)
-        .sheet(isPresented: $showCleanupConfirmation) {
+        .sheet(isPresented: $model.cleanupConfirmationRequested) {
             cleanupConfirmation
+        }
+        .onExitCommand { model.dismissPreview() }
+        .onChange(of: model.requestedPrimarySection) { requested in
+            if requested == PrimarySection.incidents.rawValue { primarySection = .incidents }
+            if requested == PrimarySection.history.rawValue { primarySection = .history }
+            if requested == PrimarySection.drivers.rawValue { primarySection = .drivers }
         }
     }
 
@@ -92,18 +105,23 @@ struct ContentView: View {
     }
 
     private var metrics: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 10) { metricCards }
-            VStack(spacing: 8) { metricCards }
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 10)], spacing: 10) {
+            metricCards
         }
     }
 
     @ViewBuilder
     private var metricCards: some View {
-        metric("Available", model.diskStatus.available, "internaldrive")
-        metric("Cleanable", model.cleanableSizeText, "checkmark.shield")
+        metric("Available for work", model.availableForWorkText, "internaldrive")
+        metric("Immediately free", model.immediatelyFreeText, "externaldrive")
+        metric("Total capacity", model.totalCapacityText, "internaldrive.fill")
+        metric("Used estimate", model.usedEstimateText, "chart.pie")
+        metric("Potentially purgeable", model.potentiallyPurgeableText, "arrow.triangle.2.circlepath")
+        metric("Safe cleanable", model.cleanableSizeText, "checkmark.shield")
         metric("Selected", model.selectedSizeText, "checklist")
         metric("Moved to Trash", model.lastTrashSizeText, "trash")
+        metric("Verified capacity change", model.lastCapacityChangeText, "arrow.left.arrow.right")
+        metric("Measurement", model.measurementStatusText, "waveform.path.ecg")
         metric("Access check", model.accessStatus, "lock.shield")
     }
 
@@ -122,18 +140,22 @@ struct ContentView: View {
             HStack(spacing: 9) { commandButtons }
             VStack(alignment: .leading, spacing: 8) { commandButtons }
         }
+        .buttonStyle(DexButtonStyle())
     }
 
     @ViewBuilder
     private var commandButtons: some View {
-        Button { model.scan() } label: { Label("Scan", systemImage: "magnifyingglass") }
+        Button { model.refreshCapacity() } label: { Label("Refresh Capacity", systemImage: "arrow.clockwise") }
+            .disabled(model.isWorking)
+            .help("Refresh the lightweight native capacity measurement")
+        Button { model.scan() } label: { Label("Quick Scan", systemImage: "magnifyingglass") }
             .keyboardShortcut("r", modifiers: .command)
             .disabled(model.isWorking)
-            .help("Start an explicit read-only scan")
+            .help("Scan exact manifest targets and protected/access markers")
         Button { model.cancel() } label: { Label("Cancel", systemImage: "xmark.circle") }
             .disabled(!model.isWorking)
             .help("Cancel active scan or cleanup work")
-        Button { model.selectVisibleCandidates(); selectedTab = .selected } label: { Label("Select Visible Candidates", systemImage: "checklist") }
+        Button { model.selectVisibleCandidates(); selectedTab = .selected } label: { Label("Select All Verified Safe Candidates", systemImage: "checklist") }
             .disabled(model.cleanableItems.isEmpty || model.isWorking)
             .help("Select only candidates visible under the current profile and search")
         Button { model.clearSelection(); selectedTab = .selected } label: { Label("Clear", systemImage: "eraser") }
@@ -142,7 +164,7 @@ struct ContentView: View {
             .keyboardShortcut("p", modifiers: .command)
             .disabled(model.selectedItems.isEmpty || model.isWorking)
             .help("Create an immutable cleanup plan without moving anything")
-        Button { showCleanupConfirmation = true } label: { Label("Move to Trash", systemImage: "trash") }
+        Button { model.requestCleanupConfirmation() } label: { Label("Move to Trash", systemImage: "trash") }
             .buttonStyle(.borderedProminent)
             .disabled(!model.canClean)
             .help("Available only after the current selection has been previewed")
@@ -231,6 +253,7 @@ struct ContentView: View {
             HStack {
                 Text("Complete preview and cleanup results").font(.headline)
                 Spacer()
+                if model.cleanupPlan != nil { Button("Close Preview") { model.dismissPreview() }.dexInteractive() }
                 if model.lastTrashBytes > 0 {
                     Button { model.openTrash() } label: { Label("Open Trash", systemImage: "trash") }
                 }
@@ -289,11 +312,17 @@ struct ContentView: View {
             }
             Text(model.reportStatusText).font(.caption2).foregroundStyle(.secondary).textSelection(.enabled)
         }
+        .buttonStyle(DexButtonStyle())
     }
 
     @ViewBuilder
     private var reportFields: some View {
         Button { model.requestAccessSettings() } label: { Label("Access Settings", systemImage: "lock.open") }
+        Toggle("Launch at login", isOn: Binding(
+            get: { model.launchAtLoginEnabled },
+            set: { _ in model.toggleLaunchAtLogin() }
+        ))
+        .toggleStyle(.switch)
         Picker("Format", selection: $model.reportFormat) {
             ForEach(ReportFormat.allCases) { Text($0.rawValue).tag($0) }
         }.frame(width: 150)
@@ -316,6 +345,8 @@ struct ContentView: View {
             if let plan = model.cleanupPlan {
                 Text("Plan \(plan.id.uuidString) · \(plan.items.count) items · \(ByteCountFormatter.string(fromByteCount: plan.totalBytes, countStyle: .file))")
                     .font(.caption.monospaced()).textSelection(.enabled)
+                Text("Expires \(plan.expiresAt.formatted(date: .abbreviated, time: .standard)) · manifest \(plan.manifestVersion) · \(plan.manifestChecksum)")
+                    .font(.caption2.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
                 List(plan.items) { item in
                     VStack(alignment: .leading, spacing: 3) {
                         Text(item.displayName).font(.headline)
@@ -329,9 +360,9 @@ struct ContentView: View {
                 .font(.callout.weight(.semibold))
             HStack {
                 Spacer()
-                Button("Cancel", role: .cancel) { showCleanupConfirmation = false }
+                Button("Cancel", role: .cancel) { model.cleanupConfirmationRequested = false }
                 Button("Move Exact Plan to Trash", role: .destructive) {
-                    showCleanupConfirmation = false
+                    model.cleanupConfirmationRequested = false
                     model.cleanConfirmed()
                     selectedTab = .results
                 }
@@ -393,42 +424,49 @@ private struct ScanItemRow: View {
     let interactive: Bool
 
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            if interactive {
-                Toggle("Select \(item.displayName)", isOn: Binding(
-                    get: { model.items.first(where: { $0.id == item.id })?.isSelected ?? false },
-                    set: { _ in model.toggle(item) }
-                ))
-                .labelsHidden()
-                .toggleStyle(.checkbox)
-                .accessibilityLabel("Select \(item.displayName)")
-            }
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(alignment: .firstTextBaseline) {
-                    Text(item.displayName).font(.headline)
-                    if item.owningProcessRunning {
-                        Label("Owning app appears active", systemImage: "exclamationmark.circle")
-                            .font(.caption2.weight(.semibold))
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .top, spacing: 10) {
+                if interactive {
+                    Toggle("Select \(item.displayName)", isOn: Binding(
+                        get: { model.items.first(where: { $0.id == item.id })?.isSelected ?? false },
+                        set: { _ in model.toggle(item) }
+                    ))
+                    .labelsHidden()
+                    .toggleStyle(.checkbox)
+                    .accessibilityLabel("Select \(item.displayName)")
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(alignment: .firstTextBaseline) {
+                        Text(item.displayName).font(.headline)
+                        if item.owningProcessRunning {
+                            Label("Owning app appears active", systemImage: "exclamationmark.circle")
+                                .font(.caption2.weight(.semibold))
+                        }
+                        Spacer()
+                        Text(item.sizeBytes > 0 ? item.formattedSize : "Not measured")
+                            .font(.caption.monospacedDigit().weight(.semibold))
                     }
-                    Spacer()
-                    Text(item.sizeBytes > 0 ? item.formattedSize : "Not measured")
-                        .font(.caption.monospacedDigit().weight(.semibold))
+                    Text(item.path).font(.caption.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
+                    Text("\(item.risk.rawValue) · \(item.category.rawValue) · ID: \(item.manifestID ?? "none")")
+                        .font(.caption2.weight(.semibold))
+                    Text(item.explanation).font(.caption2).foregroundStyle(.secondary)
+                    Text("Recovery: \(item.recoveryNote)").font(.caption2).foregroundStyle(.secondary)
+                    Text(measurementText).font(.caption2).foregroundStyle(.secondary)
                 }
-                Text(item.path).font(.caption.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
-                Text("\(item.risk.rawValue) · \(item.category.rawValue) · ID: \(item.manifestID ?? "none")")
-                    .font(.caption2.weight(.semibold))
-                Text(item.explanation).font(.caption2).foregroundStyle(.secondary)
-                Text("Recovery: \(item.recoveryNote)").font(.caption2).foregroundStyle(.secondary)
-                Text(measurementText).font(.caption2).foregroundStyle(.secondary)
-                HStack {
-                    Button { model.reveal(item) } label: { Label("Reveal", systemImage: "finder") }
-                        .buttonStyle(.borderless).disabled(!item.path.hasPrefix("/"))
-                    Button { model.copyPath(item) } label: { Label("Copy Path", systemImage: "doc.on.doc") }
-                        .buttonStyle(.borderless)
-                }
+                .contentShape(Rectangle())
+                .onTapGesture { if interactive { model.toggle(item) } }
+            }
+            HStack {
+                Button { model.reveal(item) } label: { Label("Reveal", systemImage: "finder") }
+                    .buttonStyle(.borderless).disabled(!item.path.hasPrefix("/"))
+                Button { model.copyPath(item) } label: { Label("Copy Path", systemImage: "doc.on.doc") }
+                    .buttonStyle(.borderless)
             }
         }
         .padding(.vertical, 5)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+        .accessibilityAction(named: Text("Toggle selection")) { if interactive { model.toggle(item) } }
         .accessibilityElement(children: .contain)
     }
 

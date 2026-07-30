@@ -25,21 +25,13 @@ public struct PreviewAuthorization: Hashable, Sendable {
         guard let plan, plan.id == planID else { return false }
         let age = now.timeIntervalSince(plan.createdAt)
         guard age >= 0, age <= Self.maximumPlanAge else { return false }
-        return Self.signature(for: items.filter { $0.isSelected }) == selectionSignature
+        let currentSignature = Self.signature(for: items.filter { $0.isSelected })
+        return currentSignature == selectionSignature
+            && currentSignature == plan.selectionSignature
+            && plan.selectionSignature == CleanupPlan.signature(for: plan.items)
     }
 
     public static func signature(for items: [ScanItem]) -> String {
-        items.map {
-            [
-                $0.id.uuidString,
-                $0.manifestID ?? "none",
-                $0.path,
-                String($0.sizeBytes),
-                $0.risk.rawValue,
-                $0.action.rawValue
-            ].joined(separator: "|")
-        }
-        .sorted()
-        .joined(separator: "\n")
+        CleanupPlan.signature(for: items)
     }
 }

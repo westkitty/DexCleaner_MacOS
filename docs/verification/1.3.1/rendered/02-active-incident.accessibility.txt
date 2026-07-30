@@ -1,0 +1,7 @@
+Production view: StorageIncidentsView
+Locale: en_US_POSIX
+Timezone: GMT
+Reduce Motion: enabled
+Fixed size: 1200x1800
+Required labels: Investigating | Cancel | Measuring allocation | 4 of 10 | Operation in progress
+Accessibility: Recorder status: Investigating | Reduce Motion is enabled | Ordinary local comparison directory | Already-local cloud comparison directory | Cloud provider name | Cancel active diagnostic operation | Operation in progress
