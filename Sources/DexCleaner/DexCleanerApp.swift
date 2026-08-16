@@ -21,15 +21,18 @@ struct DexCleanerApp: App {
                     .font(.caption)
                     .fixedSize(horizontal: false, vertical: true)
                 Divider()
-                Label("\(model.phase.rawValue) · Scan \(model.scanCompleteness.rawValue)", systemImage: "waveform.path.ecg")
-                Label("\(model.selectedItems.count) selected · \(model.selectedSizeText)", systemImage: "checklist")
+                Label("\(model.phase.rawValue) | Scan \(model.scanCompleteness.rawValue)", systemImage: "waveform.path.ecg")
+                TimelineView(.periodic(from: .now, by: 60)) { context in
+                    Label(model.scanFreshnessText(at: context.date), systemImage: model.scanIsStale(at: context.date) ? "clock" : "clock")
+                }
+                Label("\(model.selectedItems.count) selected | \(model.selectedSizeText)", systemImage: "checklist")
                 if !model.scanIssues.isEmpty {
                     Label("\(model.scanIssues.count) scan issue\(model.scanIssues.count == 1 ? "" : "s")", systemImage: "exclamationmark.triangle")
                 }
                 if let plan = model.cleanupPlan {
                     TimelineView(.periodic(from: .now, by: 15)) { context in
                         let ready = model.canClean(at: context.date)
-                        Label(ready ? "Preview ready · \(plan.items.count) items" : "Preview stale or expired", systemImage: ready ? "checkmark.shield" : "lock.shield")
+                        Label(ready ? "Preview ready | \(plan.items.count) items" : "Preview stale or expired", systemImage: ready ? "checkmark.shield" : "lock.shield")
                     }
                 }
                 if model.lastTrashBytes > 0 {

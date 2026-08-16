@@ -63,7 +63,7 @@ struct ExclusionInputValidation: Equatable {
     var summary: String {
         if accepted.isEmpty && rejected.isEmpty { return "No additional exclusions configured." }
         if rejected.isEmpty { return "\(accepted.count) additional exclusion\(accepted.count == 1 ? "" : "s") accepted." }
-        return "\(accepted.count) accepted · \(rejected.count) invalid ignored."
+        return "\(accepted.count) accepted | \(rejected.count) invalid ignored."
     }
 }
 
@@ -81,6 +81,7 @@ final class AppModel: ObservableObject {
     @Published var reportStatusText = "No report written in this session."
     @Published var isWorking = false
     @Published var lastReportURL: URL?
+    @Published var lastScanDate: Date?
     @Published var accessStatus = "Not tested"
     @Published var scanDurationSeconds: TimeInterval = 0
     @Published var phase: OperationPhase = .idle
@@ -136,14 +137,26 @@ final class AppModel: ObservableObject {
     var cleanableSizeText: String { ByteCountFormatter.string(fromByteCount: cleanableBytes, countStyle: .file) }
     var lastTrashSizeText: String { ByteCountFormatter.string(fromByteCount: lastTrashBytes, countStyle: .file) }
     var scanDurationText: String { scanDurationSeconds > 0 ? String(format: "%.1f s", scanDurationSeconds) : "Not run" }
+    var selectedRunningProcessCount: Int { selectedItems.filter(\.owningProcessRunning).count }
+    var selectedGroupNames: [String] { Array(Set(selectedItems.map(\.group))).sorted() }
+    var selectedGroupSummary: String {
+        guard !selectedGroupNames.isEmpty else { return "No groups selected" }
+        if selectedGroupNames.count <= 3 { return selectedGroupNames.joined(separator: ", ") }
+        return selectedGroupNames.prefix(3).joined(separator: ", ") + " +\(selectedGroupNames.count - 3) more"
+    }
     var canClean: Bool { canClean(at: Date()) }
     var manifestAuthorityText: String {
-        CleanupCatalog.isAvailable ? "Manifest \(CleanupCatalog.policyVersion) · \(CleanupCatalog.manifestChecksum)" : "Cleanup disabled: manifest invalid"
+        CleanupCatalog.isAvailable ? "Manifest \(CleanupCatalog.policyVersion) | \(CleanupCatalog.manifestChecksum)" : "Cleanup disabled: manifest invalid"
     }
     var reportDestinationText: String {
         if let reportDestinationDirectory { return reportDestinationDirectory.path }
         if let lastReportURL { return lastReportURL.deletingLastPathComponent().path }
         return "Desktop (default)"
+    }
+    var reportModeText: String { lastReportMode.rawValue }
+    var reportPreflightText: String {
+        let planText = lastReportMode == .scan ? "no cleanup plan" : ((cleanupPlan ?? lastCompletedPlan) == nil ? "no retained plan" : "plan metadata included")
+        return "Mode: \(lastReportMode.rawValue) | \(items.count) findings | \(cleanupResults.count) results | \(reportFormat.rawValue) | \(pathRedaction.rawValue) | \(planText)"
     }
     var exclusionInputValidation: ExclusionInputValidation {
         let tokens = excludedLargeFileRootsText
@@ -185,6 +198,45 @@ final class AppModel: ObservableObject {
         return "Ready: exact plan \(plan.id.uuidString.prefix(8)) authorizes \(plan.items.count) item\(plan.items.count == 1 ? "" : "s") for Finder Trash until the fifteen-minute preview window expires."
     }
 
+    func previewRemainingText(at date: Date = Date()) -> String {
+        guard let plan = cleanupPlan else { return "No active Preview authorization" }
+        let age = date.timeIntervalSince(plan.createdAt)
+        guard age >= 0 else { return "Preview clock invalid - run Preview again" }
+        let remaining = PreviewAuthorization.maximumPlanAge - age
+        guard remaining > 0 else { return "Preview expired - run Preview again" }
+        let whole = Int(remaining.rounded(.down))
+        return String(format: "Preview expires in %02d:%02d", whole / 60, whole % 60)
+    }
+
+    func scanFreshnessText(at date: Date = Date()) -> String {
+        guard let lastScanDate else { return "No scan yet" }
+        let age = max(0, date.timeIntervalSince(lastScanDate))
+        if age < 60 { return "Scanned just now" }
+        if age < 3600 { return "Scanned \(Int(age / 60)) min ago" }
+        if age < 86_400 { return "Scanned \(Int(age / 3600)) hr ago" }
+        return "Scanned \(Int(age / 86_400)) day\(age < 172_800 ? "" : "s") ago"
+    }
+
+    func scanIsStale(at date: Date = Date()) -> Bool {
+        guard let lastScanDate else { return false }
+        return date.timeIntervalSince(lastScanDate) > 30 * 60
+    }
+
+    func measurementAgeText(for item: ScanItem, at date: Date = Date()) -> String {
+        guard let measuredAt = item.measuredAt else { return item.measurementSource.rawValue }
+        let age = max(0, date.timeIntervalSince(measuredAt))
+        let ageText: String
+        if age < 60 { ageText = "just now" }
+        else if age < 3600 { ageText = "\(Int(age / 60)) min ago" }
+        else { ageText = "\(Int(age / 3600)) hr ago" }
+        return "\(item.measurementSource.rawValue) | \(ageText)"
+    }
+
+    func measurementIsStale(for item: ScanItem, at date: Date = Date()) -> Bool {
+        guard let measuredAt = item.measuredAt else { return false }
+        return date.timeIntervalSince(measuredAt) > 15 * 60
+    }
+
     func scan() {
         guard !isWorking else {
             statusText = "Another operation is still finishing."
@@ -194,7 +246,7 @@ final class AppModel: ObservableObject {
         cleanupResults = []
         lastTrashBytes = 0
         lastReportMode = .scan
-        statusText = "Scanning read-only targets and audit areas…"
+        statusText = "Scanning read-only targets and audit areas..."
         phase = .scanning
         isWorking = true
         let roots = parsedExcludedRoots
@@ -242,15 +294,43 @@ final class AppModel: ObservableObject {
         statusText = "Cancellation requested. Active shell work is being terminated where possible."
     }
 
-    func selectVisibleCandidates() {
+    func addVisibleCandidates() {
         let visibleIDs = Set(cleanableItems.map(\.id))
+        var added = 0
+        let updatedItems = items.map { item in
+            var copy = item
+            if copy.isCleanable && visibleIDs.contains(copy.id) && !copy.isSelected {
+                copy.isSelected = true
+                added += 1
+            }
+            return copy
+        }
+        guard added > 0 else {
+            statusText = "All visible candidates were already selected. Existing Preview authorization was left unchanged."
+            return
+        }
+        items = updatedItems
+        invalidatePreview()
+        statusText = "Added \(added) visible candidate\(added == 1 ? "" : "s") to the selection. Preview is required before cleanup."
+    }
+
+    func selectVisibleCandidates() {
+        addVisibleCandidates()
+    }
+
+    func clearVisibleSelection() {
+        let visibleIDs = Set(cleanableItems.map(\.id))
+        var cleared = 0
         items = items.map { item in
             var copy = item
-            copy.isSelected = copy.isCleanable && visibleIDs.contains(copy.id)
+            if visibleIDs.contains(copy.id) && copy.isSelected {
+                copy.isSelected = false
+                cleared += 1
+            }
             return copy
         }
         invalidatePreview()
-        statusText = "Selected \(visibleIDs.count) visible candidate\(visibleIDs.count == 1 ? "" : "s"). Preview is required before cleanup."
+        statusText = cleared == 0 ? "No visible selected candidates to clear." : "Cleared \(cleared) visible selection\(cleared == 1 ? "" : "s")."
     }
 
     func clearSelection(reason: String? = nil) {
@@ -300,7 +380,7 @@ final class AppModel: ObservableObject {
         }
         isWorking = true
         phase = .cleaning
-        statusText = "Revalidating each previewed target immediately before moving it to Finder Trash…"
+        statusText = "Revalidating each previewed target immediately before moving it to Finder Trash..."
         let home = NSHomeDirectory()
         activeTask = Task {
             defer {
@@ -380,20 +460,57 @@ final class AppModel: ObservableObject {
     }
 
     func reveal(_ item: ScanItem) {
-        guard item.path.hasPrefix("/") else { return }
-        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: item.path)])
+        revealPath(item.path)
+    }
+
+    func revealPath(_ path: String) {
+        guard path.hasPrefix("/"), FileManager.default.fileExists(atPath: path) else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+    }
+
+    func canRevealResult(_ result: CleanupResult) -> Bool {
+        result.path.hasPrefix("/") && FileManager.default.fileExists(atPath: result.path)
+    }
+
+    func revealResult(_ result: CleanupResult) {
+        guard canRevealResult(result) else { return }
+        revealPath(result.path)
     }
 
     func copyPath(_ item: ScanItem) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(item.path, forType: .string)
-        statusText = "Copied path."
+        copyText(item.path)
     }
 
     func copyResult(_ result: CleanupResult) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString("\(result.status): \(result.path) — \(result.detail)", forType: .string)
-        statusText = "Copied result."
+        copyText("\(result.status): \(result.path) - \(result.detail)")
+    }
+
+    func copyResults(_ results: [CleanupResult]) {
+        let text = results.map { "\($0.status): \($0.path) - \($0.detail)" }.joined(separator: "\n")
+        copyText(text)
+    }
+
+    func copyIssue(_ issue: ScanIssue) {
+        copyText("\(issue.kind.rawValue): \(issue.area) - \(issue.detail)")
+    }
+
+    func copyDiagnosticsSummary() {
+        var lines = [
+            "DexCleaner diagnostics",
+            "Scan: \(scanCompleteness.rawValue)",
+            "Access: \(accessStatus)",
+            "Duration: \(scanDurationText)",
+            "Issues: \(scanIssues.count)",
+            "Warnings: \(warnings.count)"
+        ]
+        lines.append(contentsOf: scanIssues.map { "Issue | \($0.kind.rawValue) | \($0.area) | \($0.detail)" })
+        lines.append(contentsOf: warnings.map { "Warning | \($0)" })
+        lines.append(contentsOf: permissionDiagnostics.map { "Access | \($0.title) | \($0.status) | \($0.detail)" })
+        copyText(lines.joined(separator: "\n"))
+    }
+
+    func copyPlanPaths(_ plan: CleanupPlan) {
+        copyText(plan.items.map(\.path).joined(separator: "\n"))
     }
 
     func requestAccessSettings() {
@@ -447,11 +564,19 @@ final class AppModel: ObservableObject {
     private func invalidatePreview() {
         authorization.invalidate()
         cleanupPlan = nil
+        if lastReportMode == .dryRun {
+            cleanupResults = []
+            lastReportMode = .scan
+        }
         if phase == .previewed { phase = .reviewing }
     }
 
     private func apply(snapshot: ScanSnapshot, preserveResults: Bool = false) {
-        items = snapshot.items.map { item in var copy = item; copy.isSelected = false; return copy }
+        items = snapshot.items.map { item in
+            var copy = item
+            copy.isSelected = false
+            return copy
+        }
         diskStatus = snapshot.diskStatus
         storageSummaries = snapshot.storageSummaries
         permissionDiagnostics = snapshot.permissionDiagnostics
@@ -460,6 +585,7 @@ final class AppModel: ObservableObject {
         scanCompleteness = snapshot.completeness
         accessStatus = snapshot.accessStatus
         scanDurationSeconds = snapshot.scanDurationSeconds
+        lastScanDate = snapshot.timestamp
         invalidatePreview()
         if !preserveResults { cleanupResults = [] }
     }
@@ -508,5 +634,10 @@ final class AppModel: ObservableObject {
         } catch {
             reportStatusText = "Operation completed, but ledger append failed: \(error.localizedDescription)"
         }
+    }
+
+    private func copyText(_ text: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
     }
 }

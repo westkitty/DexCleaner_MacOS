@@ -29,3 +29,41 @@ No manifest, SafetyEngine, CleanupRunner authority rule, Trash mechanism, mandat
 
 ### Remaining release proof
 Repository CI should be checked on the delivered commit. Public release still requires clean-account macOS visual/keyboard/VoiceOver, Finder Trash restore/cancellation, signing/Gatekeeper, and DMG verification.
+
+## 2026-08-16 - Production UI/UX polish round two
+
+### Repository state
+- Repository: `westkitty/DexCleaner_MacOS`
+- Branch: `main`
+- Starting commit: `b5129fa06765cfb4e1d871b91d98c7f5d1520c05`
+- Starting CI: completed successfully on both Linux and macOS.
+- Container network could not resolve GitHub, so repository reads/writes use the authenticated GitHub connector; local Swift parsing is available.
+
+### Goals and frozen scope
+- Implement exactly 25 new UI/UX improvements beyond the first 25.
+- Preserve the exact cleanup-authority model and all existing safety boundaries.
+- Limit runtime edits to `AppModel.swift`, `ContentView.swift`, and `DexCleanerApp.swift`; no cleanup-core or manifest change is authorized.
+
+### Accepted change groups
+1. State legibility and safe action guidance: scan freshness, next action, actionable workflow, scoped selection, keyboard acceleration.
+2. Review ergonomics: grouped/collapsible findings, progressive row details, measurement age, adaptive review navigation, result/issue triage.
+3. Auditability and confirmation: copyable diagnostics/results/issues, report preflight, Preview countdown, exact plan-path copy.
+
+### Confirmed defects repaired
+1. `Select Visible` replaced the entire selection, silently dropping selected candidates outside the active search filter. It is now additive, with explicit `Clear Visible` and `Clear All` controls.
+2. Copy Path and Copy Result changed the global operational status to `Copied`, hiding more important scan/cleanup state. Copy confirmation is now local to the button only.
+3. Invalidating a dry-run Preview could retain old Preview results and `dryRun` report mode while the selected items changed, allowing a later report to mix stale Preview outcomes with a new selection. Preview invalidation now clears dry-run results and returns report mode to Scan.
+4. A no-op `Add Visible` could invalidate an otherwise valid Preview even when the selected set did not change; no-op addition now preserves authorization.
+5. Expired Preview guidance could route to stale results instead of establishing a fresh read-only Preview; next-action and workflow guidance now offer Preview Again.
+6. Selection microcopy incorrectly used the term cleanup authority for selection state; wording now preserves the invariant that selection alone never authorizes cleanup.
+
+### Validation
+- Swift parser pass on all changed app sources.
+- Round-two UI contract verifies the original exact 25 plus exactly `UIX2-01` through `UIX2-25`.
+- Whitespace/conflict-marker scan passes.
+- Source guards find no permanent deletion, background scan/login service, added networking, destructive default Return shortcut, or debug `print`.
+- Native interactive macOS visual/VoiceOver/Finder Trash behavior remains a release-time proof requirement.
+
+### Delivery
+- One descriptive fast-forward commit to `main` is authorized by the current user request.
+- Final commit hash and post-push CI status are reported externally to avoid a recursive self-hash documentation commit.
