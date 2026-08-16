@@ -22,6 +22,19 @@ enum CleanupProfile: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
+    var explanation: String {
+        switch self {
+        case .all:
+            return "Shows every exact manifest-authorized cleanup candidate."
+        case .appleDevelopment:
+            return "Shows Xcode, Swift, and Simulator cache candidates."
+        case .packageManagers:
+            return "Shows package-manager cache candidates only."
+        case .appCaches:
+            return "Shows exact application runtime-cache candidates only."
+        }
+    }
+
     func includes(_ item: ScanItem) -> Bool {
         switch self {
         case .all:
@@ -41,6 +54,17 @@ enum ScanSortMode: String, CaseIterable, Identifiable {
     case name = "Name"
     case risk = "Risk"
     var id: String { rawValue }
+}
+
+struct ExclusionInputValidation: Equatable {
+    let accepted: [String]
+    let rejected: [String]
+
+    var summary: String {
+        if accepted.isEmpty && rejected.isEmpty { return "No additional exclusions configured." }
+        if rejected.isEmpty { return "\(accepted.count) additional exclusion\(accepted.count == 1 ? "" : "s") accepted." }
+        return "\(accepted.count) accepted · \(rejected.count) invalid ignored."
+    }
 }
 
 @MainActor
@@ -111,9 +135,54 @@ final class AppModel: ObservableObject {
     var selectedSizeText: String { ByteCountFormatter.string(fromByteCount: selectedBytes, countStyle: .file) }
     var cleanableSizeText: String { ByteCountFormatter.string(fromByteCount: cleanableBytes, countStyle: .file) }
     var lastTrashSizeText: String { ByteCountFormatter.string(fromByteCount: lastTrashBytes, countStyle: .file) }
-    var canClean: Bool { !isWorking && authorization.isValid(items: items, plan: cleanupPlan) }
+    var scanDurationText: String { scanDurationSeconds > 0 ? String(format: "%.1f s", scanDurationSeconds) : "Not run" }
+    var canClean: Bool { canClean(at: Date()) }
     var manifestAuthorityText: String {
         CleanupCatalog.isAvailable ? "Manifest \(CleanupCatalog.policyVersion) · \(CleanupCatalog.manifestChecksum)" : "Cleanup disabled: manifest invalid"
+    }
+    var reportDestinationText: String {
+        if let reportDestinationDirectory { return reportDestinationDirectory.path }
+        if let lastReportURL { return lastReportURL.deletingLastPathComponent().path }
+        return "Desktop (default)"
+    }
+    var exclusionInputValidation: ExclusionInputValidation {
+        let tokens = excludedLargeFileRootsText
+            .split(separator: ",", omittingEmptySubsequences: true)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+
+        var accepted: [String] = []
+        var rejected: [String] = []
+        var seenAccepted = Set<String>()
+        var seenRejected = Set<String>()
+        for token in tokens {
+            if let canonical = ManifestValidator.canonicalRelativePath(token) {
+                if seenAccepted.insert(canonical).inserted { accepted.append(canonical) }
+            } else if seenRejected.insert(token).inserted {
+                rejected.append(token)
+            }
+        }
+        return ExclusionInputValidation(accepted: accepted, rejected: rejected)
+    }
+
+    func canClean(at date: Date) -> Bool {
+        !isWorking && authorization.isValid(items: items, plan: cleanupPlan, now: date)
+    }
+
+    func cleanupReadinessText(at date: Date = Date()) -> String {
+        if isWorking { return "Another operation is active. Cleanup controls are locked until it finishes or is cancelled." }
+        if selectedItems.isEmpty { return "Select one or more exact cache candidates before Preview can authorize a cleanup plan." }
+        guard let plan = cleanupPlan else {
+            return "Preview the current \(selectedItems.count) selected item\(selectedItems.count == 1 ? "" : "s") before Move to Trash becomes available."
+        }
+        let age = date.timeIntervalSince(plan.createdAt)
+        if age < 0 || age > PreviewAuthorization.maximumPlanAge {
+            return "Preview expired after fifteen minutes. Run Preview again before moving anything to Trash."
+        }
+        if !authorization.isValid(items: items, plan: plan, now: date) {
+            return "Preview is stale because the authorized selection changed. Run Preview again."
+        }
+        return "Ready: exact plan \(plan.id.uuidString.prefix(8)) authorizes \(plan.items.count) item\(plan.items.count == 1 ? "" : "s") for Finder Trash until the fifteen-minute preview window expires."
     }
 
     func scan() {
@@ -181,11 +250,15 @@ final class AppModel: ObservableObject {
             return copy
         }
         invalidatePreview()
-        statusText = "Selected \(visibleIDs.count) visible candidates. Preview is required before cleanup."
+        statusText = "Selected \(visibleIDs.count) visible candidate\(visibleIDs.count == 1 ? "" : "s"). Preview is required before cleanup."
     }
 
     func clearSelection(reason: String? = nil) {
-        items = items.map { item in var copy = item; copy.isSelected = false; return copy }
+        items = items.map { item in
+            var copy = item
+            copy.isSelected = false
+            return copy
+        }
         invalidatePreview()
         if let reason { statusText = reason }
     }
@@ -347,10 +420,7 @@ final class AppModel: ObservableObject {
     }
 
     private var parsedExcludedRoots: [String] {
-        excludedLargeFileRootsText
-            .split(separator: ",")
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .compactMap(ManifestValidator.canonicalRelativePath)
+        exclusionInputValidation.accepted
     }
 
     private func matchesSearch(_ item: ScanItem) -> Bool {

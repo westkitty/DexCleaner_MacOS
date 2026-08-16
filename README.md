@@ -8,27 +8,28 @@ It is not a broad cleaner. It grants cleanup authority only to exact, validated,
 
 ## Current release posture
 
-The core safety refactor is implemented on the `implement/adversarial-safety-refactor` branch.
+The 1.0 safety refactor is integrated on `main`. A production UI/UX polish pass now layers clearer workflow state, diagnostics, keyboard/focus behavior, report feedback, reduced-motion handling, and live Preview-expiry feedback on top of the same cleanup-authority model.
 
-Validated in the available Linux Swift environment:
+The repository CI baseline before the UI/UX pass was green on both Linux and macOS:
 
-- `swift test`: 22 tests, 0 failures
-- `swift build`: pass
-- Swift parser check for all macOS app source files: pass
-- manifest JSON validation: pass
-- shell syntax and source guards: included in `make bug-sweep`
+- `make bug-sweep`: passed in the Linux CI job
+- release-mode core tests: passed
+- macOS tests and executable build: passed
+- app-bundle resource discovery and codesign verification: passed
 
-Still required on actual macOS before release:
+The UI/UX pass adds `make ui-contract`, which verifies the exact 25-item improvement ledger plus key source contracts before the existing bug sweep continues.
 
-- compile and launch the SwiftUI executable target
+Still required on actual macOS hardware before public release:
+
+- launch and exercise the SwiftUI app at narrow and wide window sizes
 - verify Finder Trash movement and restoration
 - verify cancellation during real scans and Trash moves
 - verify Full Disk Access messaging
-- verify keyboard and VoiceOver navigation
+- verify keyboard, enlarged-text, reduced-motion, and VoiceOver behavior
 - build, sign, verify, install, and launch the app bundle and DMG
 - run the clean-account release checklist
 
-No claim of release readiness exists until those checks pass.
+No claim of public release readiness exists until those checks pass.
 
 ## Safety architecture
 
@@ -65,21 +66,27 @@ A scan reports:
 - explicit completeness and issue status
 - fresh versus cached measurement timestamps
 
+Warnings, measured cleanable summaries, and representative access diagnostics are visible in the main interface through Scan Details rather than being report-only state.
+
 ### 2. Review
 
 The user may filter and search findings. Selected targets remain visible in a dedicated Selected tab. Changing the cleanup profile clears selection to prevent hidden authority.
+
+Command-F focuses search. Search can be cleared explicitly or with Escape while focused. Empty states distinguish “not scanned,” “filtered empty,” and “no findings” instead of presenting a blank list.
 
 ### 3. Preview
 
 Preview performs no mutation. It creates an immutable cleanup plan only when every selected target passes the safety engine and has a readable filesystem identity.
 
+The interface explains why cleanup is unavailable and re-evaluates the Preview authorization window so an expired plan does not continue to look ready.
+
 ### 4. Confirm and move
 
-The confirmation sheet lists every exact path and estimated byte count. Cleanup revalidates the plan and then moves authorized targets to Finder Trash.
+The confirmation sheet lists every exact path and estimated byte count, shows plan identity and lifetime, and initially focuses the non-destructive Cancel action. Cleanup revalidates the plan and then moves authorized targets to Finder Trash.
 
 ## Removed from the first trustworthy release
 
-The following features were deliberately removed:
+The following features remain deliberately absent:
 
 - background scanning
 - launch at login
@@ -114,6 +121,12 @@ Preview and cleanup operations are appended to:
 No telemetry, analytics, cloud upload, or network dependency is implemented.
 
 ## Development
+
+Run the UI/UX count and source contract:
+
+```bash
+make ui-contract
+```
 
 Run the full local sweep:
 
@@ -151,10 +164,15 @@ Sources/DexCleanerCore/OperationLedger.swift
 Sources/DexCleanerCore/ReportWriter.swift
 Sources/DexCleaner/AppModel.swift
 Sources/DexCleaner/ContentView.swift
+Sources/DexCleaner/DexCleanerApp.swift
 Tests/DexCleanerTests/DexCleanerTests.swift
 docs/SAFETY_POLICY.md
 docs/MANIFEST_SCHEMA.md
 docs/RELEASE_CHECKLIST.md
+docs/UI_UX_POLISH_2026-08-16.md
+scripts/verify_ui_contract.py
+OPERATIONAL_STATE.md
+DexCleaner_MacOS_bible.md
 BUG_SWEEP_REPORT.md
 CHANGELOG.md
 ```
