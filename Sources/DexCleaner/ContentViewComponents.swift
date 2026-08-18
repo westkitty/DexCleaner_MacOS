@@ -107,6 +107,7 @@ struct ScanItemRow: View {
                     set: { _ in model.toggle(item) }
                 ))
                 .labelsHidden().toggleStyle(.checkbox)
+                .disabled(model.isWorking)
             }
             VStack(alignment: .leading, spacing: 5) {
                 HStack {
@@ -134,7 +135,9 @@ struct ScanItemRow: View {
                     Button(isExpanded ? "Less" : "Details") { onToggleExpanded() }
                         .buttonStyle(.bordered).controlSize(.small)
                         .accessibilityHint(isExpanded ? "Collapses explanation and recovery details." : "Expands explanation and recovery details.")
-                    Button("Reveal") { model.reveal(item) }.buttonStyle(.bordered).controlSize(.small)
+                    if model.canReveal(item) {
+                        Button("Reveal") { model.reveal(item) }.buttonStyle(.bordered).controlSize(.small)
+                    }
                     FeedbackButton(title: "Copy Path", successTitle: "Copied", systemImage: "doc.on.doc") { model.copyPath(item) }
                 }
                 if isExpanded {
@@ -153,8 +156,13 @@ struct ScanItemRow: View {
         .padding(.horizontal, 8).padding(.vertical, 7)
         .contentShape(Rectangle())
         .contextMenu {
-            if interactive { Button(isSelected ? "Deselect" : "Select") { model.toggle(item) } }
-            Button("Reveal in Finder") { model.reveal(item) }
+            if interactive {
+                Button(isSelected ? "Deselect" : "Select") { model.toggle(item) }
+                    .disabled(model.isWorking)
+            }
+            if model.canReveal(item) {
+                Button("Reveal in Finder") { model.reveal(item) }
+            }
             Button("Copy Path") { model.copyPath(item) }
         }
         .accessibilityElement(children: .contain)
@@ -193,21 +201,28 @@ struct ResultRow: View {
 struct FeedbackButton: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var success = false
+    @State private var feedbackResetTask: Task<Void, Never>?
     let title: String
     let successTitle: String
     let systemImage: String
     let action: () -> Void
     var body: some View {
         Button {
+            feedbackResetTask?.cancel()
             action()
             withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.16)) { success = true }
-            Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 1_200_000_000)
+            feedbackResetTask = Task { @MainActor in
+                do {
+                    try await Task.sleep(nanoseconds: 1_200_000_000)
+                } catch {
+                    return
+                }
                 withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.16)) { success = false }
             }
         } label: {
             Label(success ? successTitle : title, systemImage: success ? "checkmark" : systemImage)
         }
         .buttonStyle(.bordered).controlSize(.small).frame(minHeight: 30)
+        .onDisappear { feedbackResetTask?.cancel() }
     }
 }

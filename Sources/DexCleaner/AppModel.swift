@@ -145,6 +145,9 @@ final class AppModel: ObservableObject {
         return selectedGroupNames.prefix(3).joined(separator: ", ") + " +\(selectedGroupNames.count - 3) more"
     }
     var canClean: Bool { canClean(at: Date()) }
+    var hasCleanupOutcome: Bool {
+        lastReportMode == .cleanup && !cleanupResults.isEmpty && lastCompletedPlan != nil
+    }
     var manifestAuthorityText: String {
         CleanupCatalog.isAvailable ? "Manifest \(CleanupCatalog.policyVersion) | \(CleanupCatalog.manifestChecksum)" : "Cleanup disabled: manifest invalid"
     }
@@ -155,7 +158,13 @@ final class AppModel: ObservableObject {
     }
     var reportModeText: String { lastReportMode.rawValue }
     var reportPreflightText: String {
-        let planText = lastReportMode == .scan ? "no cleanup plan" : ((cleanupPlan ?? lastCompletedPlan) == nil ? "no retained plan" : "plan metadata included")
+        let planText: String
+        switch lastReportMode {
+        case .scan:
+            planText = "no cleanup plan"
+        case .dryRun, .cleanup:
+            planText = reportPlan(for: lastReportMode) == nil ? "no retained plan" : "plan metadata included"
+        }
         return "Mode: \(lastReportMode.rawValue) | \(items.count) findings | \(cleanupResults.count) results | \(reportFormat.rawValue) | \(pathRedaction.rawValue) | \(planText)"
     }
     var exclusionInputValidation: ExclusionInputValidation {
@@ -310,7 +319,7 @@ final class AppModel: ObservableObject {
             return
         }
         items = updatedItems
-        invalidatePreview()
+        selectionDidChange()
         statusText = "Added \(added) visible candidate\(added == 1 ? "" : "s") to the selection. Preview is required before cleanup."
     }
 
@@ -321,7 +330,7 @@ final class AppModel: ObservableObject {
     func clearVisibleSelection() {
         let visibleIDs = Set(cleanableItems.map(\.id))
         var cleared = 0
-        items = items.map { item in
+        let updatedItems = items.map { item in
             var copy = item
             if visibleIDs.contains(copy.id) && copy.isSelected {
                 copy.isSelected = false
@@ -329,8 +338,13 @@ final class AppModel: ObservableObject {
             }
             return copy
         }
-        invalidatePreview()
-        statusText = cleared == 0 ? "No visible selected candidates to clear." : "Cleared \(cleared) visible selection\(cleared == 1 ? "" : "s")."
+        guard cleared > 0 else {
+            statusText = "No visible selected candidates to clear."
+            return
+        }
+        items = updatedItems
+        selectionDidChange()
+        statusText = "Cleared \(cleared) visible selection\(cleared == 1 ? "" : "s")."
     }
 
     func clearSelection(reason: String? = nil) {
@@ -339,14 +353,14 @@ final class AppModel: ObservableObject {
             copy.isSelected = false
             return copy
         }
-        invalidatePreview()
+        selectionDidChange()
         if let reason { statusText = reason }
     }
 
     func toggle(_ item: ScanItem) {
         guard !isWorking, let index = items.firstIndex(where: { $0.id == item.id }), items[index].isCleanable else { return }
         items[index].isSelected.toggle()
-        invalidatePreview()
+        selectionDidChange()
         statusText = "Selection changed. Run Preview again before cleanup."
     }
 
@@ -368,7 +382,7 @@ final class AppModel: ObservableObject {
         } else {
             authorization.invalidate()
             phase = .failed
-            statusText = "Preview blocked. No cleanup plan was authorized."
+            statusText = "Preview blocked. No cleanup plan was authorized. Review Results for the blocking evidence before changing the selection or retrying."
         }
         appendLedger(mode: .dryRun, plan: outcome.plan, results: outcome.results, movedBytes: 0)
     }
@@ -463,13 +477,17 @@ final class AppModel: ObservableObject {
         revealPath(item.path)
     }
 
+    func canReveal(_ item: ScanItem) -> Bool {
+        canRevealPath(item.path)
+    }
+
     func revealPath(_ path: String) {
-        guard path.hasPrefix("/"), FileManager.default.fileExists(atPath: path) else { return }
+        guard canRevealPath(path) else { return }
         NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
     }
 
     func canRevealResult(_ result: CleanupResult) -> Bool {
-        result.path.hasPrefix("/") && FileManager.default.fileExists(atPath: result.path)
+        canRevealPath(result.path)
     }
 
     func revealResult(_ result: CleanupResult) {
@@ -561,6 +579,13 @@ final class AppModel: ObservableObject {
         }
     }
 
+    private func selectionDidChange() {
+        invalidatePreview()
+        if !isWorking && scanCompleteness != .notRun {
+            phase = .reviewing
+        }
+    }
+
     private func invalidatePreview() {
         authorization.invalidate()
         cleanupPlan = nil
@@ -590,17 +615,19 @@ final class AppModel: ObservableObject {
         if !preserveResults { cleanupResults = [] }
     }
 
-    private func currentReport(mode: ReportMode) -> ScanReport {
-        let reportPlan: CleanupPlan?
+    private func reportPlan(for mode: ReportMode) -> CleanupPlan? {
         switch mode {
         case .scan:
-            reportPlan = nil
+            return nil
         case .dryRun:
-            reportPlan = cleanupPlan
+            return cleanupPlan
         case .cleanup:
-            reportPlan = lastCompletedPlan
+            return lastCompletedPlan
         }
-        return ScanReport(
+    }
+
+    private func currentReport(mode: ReportMode) -> ScanReport {
+        ScanReport(
             mode: mode,
             timestamp: Date(),
             diskStatus: diskStatus,
@@ -616,7 +643,7 @@ final class AppModel: ObservableObject {
             manifestChecksum: CleanupCatalog.manifestChecksum,
             appVersion: DiskScanner().appVersion,
             accessStatus: accessStatus,
-            cleanupPlan: reportPlan,
+            cleanupPlan: reportPlan(for: mode),
             movedToTrashBytes: lastTrashBytes
         )
     }
@@ -634,6 +661,10 @@ final class AppModel: ObservableObject {
         } catch {
             reportStatusText = "Operation completed, but ledger append failed: \(error.localizedDescription)"
         }
+    }
+
+    private func canRevealPath(_ path: String) -> Bool {
+        path.hasPrefix("/") && FileManager.default.fileExists(atPath: path)
     }
 
     private func copyText(_ text: String) {

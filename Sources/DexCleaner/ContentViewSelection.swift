@@ -45,7 +45,9 @@ extension ContentView {
                     }
                     Picker("Profile", selection: $model.activeProfile) {
                         ForEach(CleanupProfile.allCases) { Text($0.rawValue).tag($0) }
-                    }.frame(width: 150)
+                    }
+                    .frame(width: 150)
+                    .disabled(model.isWorking)
                     Picker("Sort", selection: $model.sortMode) {
                         ForEach(ScanSortMode.allCases) { Text($0.rawValue).tag($0) }
                     }.frame(width: 120)

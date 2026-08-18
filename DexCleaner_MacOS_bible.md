@@ -67,3 +67,35 @@ Repository CI should be checked on the delivered commit. Public release still re
 ### Delivery
 - One descriptive fast-forward commit to `main` is authorized by the current user request.
 - Final commit hash and post-push CI status are reported externally to avoid a recursive self-hash documentation commit.
+
+## 2026-08-18 - Bug sweep round three
+
+### Baseline and purpose
+- Repository: `westkitty/DexCleaner_MacOS`
+- Branch: `main`
+- Starting commit: `c21a1bd566e5fc07243f7838e2ef2525fd44071a`
+- Goal: close the eight confirmed BUG3 defects from the fresh production sweep and any directly adjacent state defect found during resweep without broadening cleanup authority.
+
+### Confirmed repair set
+- Next-action routing now surfaces blocked/failed/cancelled/completed operation results instead of routing past them.
+- Result filters reset when a new result set arrives.
+- Scan-cache records with future timestamps are rejected and pruned rather than treated as fresh.
+- Report preflight and report construction share one mode-aware cleanup-plan selector.
+- Selection-mutating row controls and the profile picker are disabled while work is active.
+- Reveal controls are omitted for synthetic non-filesystem findings.
+- Copy-feedback reset tasks are cancellation-safe across rapid repeated clicks and view disappearance.
+- Terminal cleanup outcomes advance the workflow beyond confirmation rather than highlighting a disabled confirmation step.
+- Adjacent resweep found one additional state defect: an actual selection change after terminal state could leave Complete/Needs attention/Cancelled visible. Selection mutation now returns a scanned idle session to Review.
+
+### Regression protection
+- Added `ScanCacheClockRegressionTests.swift` for future-dated cache rejection and persistence pruning.
+- Extended `scripts/verify_ui_contract.py` with round-three state/routing/reveal/feedback/report/cache guards while preserving the exact two 25-item UI ledgers.
+- Added `docs/BUG_SWEEP_ROUND3_2026-08-18.md` as the source-level defect and validation ledger.
+
+### Protected surfaces
+- Cleanup manifest, `SafetyEngine`, `CleanupRunner`, `PreviewAuthorization`, Finder Trash behavior, mandatory privacy exclusions, and no-background/no-network doctrine remain unchanged.
+- `ScanCache.swift` is changed only to reject invalid clock-skewed cache ages; this can increase remeasurement but cannot expand cleanup authority.
+
+### Delivery rule
+- Final completion still requires repository Linux and macOS CI on the delivered commit.
+- Final commit hash and post-push CI outcome remain external to this append-only entry to avoid a recursive documentation commit.

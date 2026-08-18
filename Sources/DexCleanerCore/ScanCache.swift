@@ -26,9 +26,9 @@ public final class ScanCache: @unchecked Sendable {
         let normalized = SafetyEngine.lexicalNormalize(path)
         guard let modificationTime = Self.modificationTime(path: normalized) else { return nil }
         lock.lock(); let record = records[normalized]; lock.unlock()
-        guard let record,
-              record.modificationTime == modificationTime,
-              now.timeIntervalSince(record.scannedAt) <= maximumAge else { return nil }
+        guard let record, record.modificationTime == modificationTime else { return nil }
+        let age = now.timeIntervalSince(record.scannedAt)
+        guard age >= 0, age <= maximumAge else { return nil }
         return record
     }
 
@@ -60,7 +60,10 @@ public final class ScanCache: @unchecked Sendable {
 
     public func pruneExpired(now: Date = Date()) {
         lock.lock()
-        records = records.filter { now.timeIntervalSince($0.value.scannedAt) <= maximumAge }
+        records = records.filter {
+            let age = now.timeIntervalSince($0.value.scannedAt)
+            return age >= 0 && age <= maximumAge
+        }
         lock.unlock()
     }
 

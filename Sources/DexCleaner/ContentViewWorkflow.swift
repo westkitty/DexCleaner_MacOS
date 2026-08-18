@@ -50,11 +50,12 @@ extension ContentView {
         case .idle, .scanning: current = 1
         case .reviewing: current = 2
         case .previewed: current = 3
-        case .cleaning, .complete: current = 4
+        case .cleaning: current = 4
+        case .complete: current = 5
         case .cancelled, .failed:
-            current = model.lastCompletedPlan != nil ? 4 : (!model.cleanupResults.isEmpty ? 3 : (model.scanCompleteness != .notRun ? 2 : 1))
+            current = model.hasCleanupOutcome ? 5 : (!model.cleanupResults.isEmpty ? 3 : (model.scanCompleteness != .notRun ? 2 : 1))
         }
-        if model.phase == .complete || n < current { return 0 }
+        if n < current { return 0 }
         return n == current ? 1 : 2
     }
 
@@ -72,7 +73,11 @@ extension ContentView {
         switch n {
         case 1: return "Starts a new explicit scan."
         case 2: return "Opens cleanup candidates."
-        case 3: return model.cleanupPlan == nil ? "Runs a read-only Preview for the current selection." : "Runs Preview again when authorization is stale, otherwise opens Preview results."
+        case 3:
+            if model.selectedItems.isEmpty && !model.cleanupResults.isEmpty {
+                return "Opens the latest Preview or cleanup results."
+            }
+            return model.cleanupPlan == nil ? "Runs a read-only Preview for the current selection." : "Runs Preview again when authorization is stale, otherwise opens Preview results."
         case 4: return "Opens the exact-path confirmation sheet when Preview authorization is valid."
         default: return ""
         }

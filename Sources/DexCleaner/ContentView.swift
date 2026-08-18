@@ -70,9 +70,22 @@ struct ContentView: View {
         .animation(animation, value: model.isWorking)
         .animation(animation, value: tab)
         .animation(animation, value: resultFilter)
+        .onChange(of: model.cleanupResults) { _ in
+            resultFilter = .all
+        }
     }
 
     var animation: Animation? { reduceMotion ? nil : .easeInOut(duration: 0.18) }
+
+    var shouldReviewOperationResults: Bool {
+        guard model.cleanupPlan == nil, !model.cleanupResults.isEmpty else { return false }
+        switch model.phase {
+        case .failed, .cancelled, .complete:
+            return true
+        default:
+            return false
+        }
+    }
 
     var header: some View {
         HStack(alignment: .firstTextBaseline) {
@@ -147,59 +160,56 @@ struct ContentView: View {
         if model.isWorking { return "Let the active operation finish or cancel it" }
         if model.scanCompleteness == .notRun { return "Run an explicit scan" }
         if !model.scanIssues.isEmpty && model.scanCompleteness != .complete { return "Review scan issues before trusting gaps" }
-        if model.selectedItems.isEmpty { return "Review exact cleanup candidates" }
-        if model.cleanupPlan == nil { return "Preview the selected exact paths" }
         if model.canClean(at: date) { return "Confirm the authorized Finder Trash move" }
         if model.cleanupPlan != nil { return "Preview authorization expired - run Preview again" }
-        if !model.cleanupResults.isEmpty { return "Review operation results" }
-        return "Review the current scan"
+        if shouldReviewOperationResults { return "Review operation results" }
+        if model.selectedItems.isEmpty { return "Review exact cleanup candidates" }
+        return "Preview the selected exact paths"
     }
 
     func nextActionDetail(at date: Date) -> String {
         if model.isWorking { return "Cancellation does not authorize any new cleanup target." }
         if model.scanCompleteness == .notRun { return "DexCleaner stays idle until you request a scan." }
         if !model.scanIssues.isEmpty && model.scanCompleteness != .complete { return "Issues are evidence, not silent zeroes." }
-        if model.selectedItems.isEmpty { return "Selection is explicit and starts empty after each scan." }
-        if model.cleanupPlan == nil { return "Preview is read-only and binds the exact selection to filesystem identity." }
         if model.canClean(at: date) { return "The final move still revalidates every previewed target immediately before Trash." }
         if model.cleanupPlan != nil { return "Expired authorization cannot move anything. Re-preview the unchanged selection to establish a new plan." }
-        if !model.cleanupResults.isEmpty { return "Blocked, failed, cancelled, and moved outcomes remain visible." }
-        return "No broad or automatic cleanup is available."
+        if shouldReviewOperationResults { return "Blocked, failed, cancelled, and moved outcomes remain visible before you start another workflow." }
+        if model.selectedItems.isEmpty { return "Selection is explicit and starts empty after each scan." }
+        return "Preview is read-only and binds the exact selection to filesystem identity."
     }
 
     func nextActionButtonTitle(at date: Date) -> String {
         if model.isWorking { return "Cancel" }
         if model.scanCompleteness == .notRun { return "Scan Now" }
         if !model.scanIssues.isEmpty && model.scanCompleteness != .complete { return "Review Issues" }
-        if model.selectedItems.isEmpty { return "Review Candidates" }
-        if model.cleanupPlan == nil { return "Preview \(model.selectedItems.count)" }
         if model.canClean(at: date) { return "Review Confirmation" }
         if model.cleanupPlan != nil { return "Preview Again" }
-        if !model.cleanupResults.isEmpty { return "Review Results" }
-        return "Review Candidates"
+        if shouldReviewOperationResults { return "Review Results" }
+        if model.selectedItems.isEmpty { return "Review Candidates" }
+        return "Preview \(model.selectedItems.count)"
     }
 
     func nextActionIcon(at date: Date) -> String {
         if model.isWorking { return "hourglass" }
         if model.scanCompleteness == .notRun { return "magnifyingglass" }
         if !model.scanIssues.isEmpty && model.scanCompleteness != .complete { return "exclamationmark.triangle" }
-        if model.selectedItems.isEmpty { return "list.bullet.rectangle" }
-        if model.cleanupPlan == nil { return "doc.text" }
         if model.canClean(at: date) { return "checkmark.shield" }
         if model.cleanupPlan != nil { return "arrow.clockwise" }
-        return "list.bullet.rectangle"
+        if shouldReviewOperationResults { return "list.bullet.rectangle" }
+        if model.selectedItems.isEmpty { return "list.bullet.rectangle" }
+        return "doc.text"
     }
 
     func performNextAction(at date: Date) {
         if model.isWorking { model.cancel(); return }
         if model.scanCompleteness == .notRun { model.scan(); return }
         if !model.scanIssues.isEmpty && model.scanCompleteness != .complete { tab = .issues; return }
-        if model.selectedItems.isEmpty { tab = .cleanable; return }
-        if model.cleanupPlan == nil { model.previewSelected(); tab = .results; return }
         if model.canClean(at: date) { showConfirm = true; return }
         if model.cleanupPlan != nil { model.previewSelected(); tab = .results; return }
-        if !model.cleanupResults.isEmpty { tab = .results; return }
-        tab = .cleanable
+        if shouldReviewOperationResults { tab = .results; return }
+        if model.selectedItems.isEmpty { tab = .cleanable; return }
+        model.previewSelected()
+        tab = .results
     }
 
 }
