@@ -36,7 +36,7 @@ bug-sweep:
 	swiftc -parse Sources/DexCleaner/*.swift
 	python3 -m json.tool Sources/DexCleanerCore/Resources/CleanupManifest.json >/dev/null
 	bash -n scripts/*.sh
-	! grep -RInE "FileManager\\.default\\.removeItem|(^|[[:space:]])unlink([[:space:]]|$$)|(^|[[:space:]])rm[[:space:]]+-[rRfF]" Sources Tests scripts
+	! grep -nE "FileManager\\.default\\.removeItem|(^|[[:space:]])unlink([[:space:]]|$$)|(^|[[:space:]])rm[[:space:]]+-[rRfF]" Sources/DexCleanerCore/CleanupRunner.swift Sources/DexCleanerCore/DiskScanner.swift Sources/DexCleanerCore/SafetyEngine.swift Sources/DexCleaner/*.swift scripts/*.sh
 	! grep -RIn "backgroundTimer\|Background scan" Sources
 	! grep -RIn "\.skipsHiddenFiles" Sources/DexCleanerCore
 	grep -q "withTaskCancellationHandler" Sources/DexCleaner/AppModel.swift

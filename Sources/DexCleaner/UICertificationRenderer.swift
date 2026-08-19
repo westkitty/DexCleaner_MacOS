@@ -273,9 +273,12 @@ enum UICertificationRenderer {
         guard let data = bitmap.bitmapData else { return 0 }
         let count = bitmap.bytesPerRow * bitmap.pixelsHigh
         var meaningful = 0
-        for index in 0..<count {
-            let value = data[index]
+        var pointer = data
+        for _ in 0..<count {
+            let value = pointer.pointee
             if value > 8 && value < 247 { meaningful += 1 }
+            if meaningful > 5_000 { return meaningful }
+            pointer = pointer.advanced(by: 1)
         }
         return meaningful
     }
