@@ -1,0 +1,64 @@
+{
+  "git_state": {
+    "available": true,
+    "branch": "codex/final-storage-forensics",
+    "dirty": true,
+    "head": "7b4999ccd8ee6310e1c1452137cb463a4502fe93",
+    "head_subject": "chore: relocate DexCleaner project root",
+    "is_repo": true,
+    "remote_url": "git@github.com:westkitty/DexCleaner_MacOS",
+    "repo_root": "/Users/andrew/DexCleaner",
+    "staged_count": 1,
+    "tracked_modified_count": 1,
+    "untracked_count": 18
+  },
+  "identity": {
+    "name": "DexCleaner",
+    "path": "/Users/andrew/DexCleaner"
+  },
+  "project_type": {
+    "confidence": 0.75,
+    "evidence": [
+      "Found Package.swift"
+    ],
+    "purpose": "Purpose could not be inferred confidently from filesystem signals.",
+    "type": "swift_package"
+  },
+  "recommended_next_actions": [
+    "Inspect the current uncommitted Git changes before making new edits.",
+    "Back up or review fragile configuration files before any risky changes.",
+    "Validate the project with the hinted test command: swift test",
+    "Validate the project with the hinted build command: swift build",
+    "Read `.resurrection/project_report.md` and make one bounded change at a time."
+  ],
+  "scan_timestamp": "2026-07-30T12:01:49+00:00",
+  "scanner_version": "1.1.0",
+  "signature": {
+    "git_dirty": {
+      "dirty": true,
+      "staged_count": 1,
+      "tracked_modified_count": 1,
+      "untracked_count": 18
+    },
+    "git_head": "7b4999ccd8ee6310e1c1452137cb463a4502fe93",
+    "project_type": "swift_package",
+    "scanner_version": "1.1.0",
+    "watched_files": {
+      "DexCleaner_MacOS_bible.md": {
+        "mtime_ns": 1785411278092908871,
+        "sha256": "beddcdaabe3c4e39893e33c2eda54973e287d50abc083e123413e7500519db7e",
+        "size": 13882
+      },
+      "Package.swift": {
+        "mtime_ns": 1785199206485266714,
+        "sha256": "4809634c55e94ab8a5a532b0bfc3de0d545283c54ea2ac2eb06c19c5fd03068a",
+        "size": 826
+      },
+      "README.md": {
+        "mtime_ns": 1785199206485786818,
+        "sha256": "66db7df3e6b0be3a0bc8700a8ac3c647168cca80d8861ff6f83a804728de75e2",
+        "size": 5472
+      }
+    }
+  }
+}

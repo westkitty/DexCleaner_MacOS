@@ -1,0 +1,92 @@
+{
+  "commands": [
+    {
+      "category": "build",
+      "command": "swift build",
+      "source": "Package.swift"
+    },
+    {
+      "category": "test",
+      "command": "swift test",
+      "source": "Package.swift"
+    }
+  ],
+  "duplicate_candidates": [
+    ".build-1_3_1-final",
+    ".build-final",
+    "sibling-near-duplicate: dex"
+  ],
+  "fragile_files": [
+    ".build-1_3_0/arm64-apple-macosx/debug/DexCleaner-entitlement.plist",
+    ".build-1_3_0/arm64-apple-macosx/debug/DexCleaner.dSYM/Contents/Info.plist",
+    ".build-1_3_1-final/arm64-apple-macosx/debug/DexCleaner-entitlement.plist",
+    ".build-1_3_1-final/arm64-apple-macosx/debug/DexCleaner.dSYM/Contents/Info.plist",
+    ".build-1_3_1-final/arm64-apple-macosx/debug/DexCleanerPackageTests.xctest/Contents/MacOS/DexCleanerPackageTests.dSYM/Contents/Info.plist",
+    ".build-1_3_1-release-gate/arm64-apple-macosx/debug/DexCleaner-entitlement.plist",
+    ".build-1_3_1-release-gate/arm64-apple-macosx/debug/DexCleaner.dSYM/Contents/Info.plist",
+    ".build-1_3_1-release-gate/arm64-apple-macosx/debug/DexCleanerPackageTests.xctest/Contents/MacOS/DexCleanerPackageTests.dSYM/Contents/Info.plist",
+    ".build-1_3_1-sprint-a/arm64-apple-macosx/debug/DexCleaner-entitlement.plist",
+    ".build-1_3_1-sprint-a/arm64-apple-macosx/debug/DexCleaner.dSYM/Contents/Info.plist",
+    ".build-1_3_1-sprint-a/arm64-apple-macosx/debug/DexCleanerPackageTests.xctest/Contents/MacOS/DexCleanerPackageTests.dSYM/Contents/Info.plist",
+    ".build-1_3_1/arm64-apple-macosx/debug/DexCleaner-entitlement.plist",
+    ".build-1_3_1/arm64-apple-macosx/debug/DexCleaner.dSYM/Contents/Info.plist",
+    ".build-1_3_2-responsiveness/arm64-apple-macosx/debug/DexCleaner-entitlement.plist",
+    ".build-1_3_2-responsiveness/arm64-apple-macosx/debug/DexCleaner.dSYM/Contents/Info.plist",
+    ".build-1_3_2-responsiveness/arm64-apple-macosx/debug/DexCleanerPackageTests.xctest/Contents/MacOS/DexCleanerPackageTests.dSYM/Contents/Info.plist",
+    ".build-final/arm64-apple-macosx/debug/DexCleaner-entitlement.plist",
+    ".build-final/arm64-apple-macosx/debug/DexCleaner.dSYM/Contents/Info.plist",
+    ".build-final/arm64-apple-macosx/debug/DexCleanerPackageTests.xctest/Contents/MacOS/DexCleanerPackageTests.dSYM/Contents/Info.plist",
+    ".build-final/arm64-apple-macosx/release/DexCleaner.dSYM/Contents/Info.plist",
+    ".build-fsevents-deps-foundation/arm64-apple-macosx/debug/DexCleaner-entitlement.plist",
+    ".build-fsevents-deps-foundation/arm64-apple-macosx/debug/DexCleaner.dSYM/Contents/Info.plist",
+    ".build-fsevents-deps-foundation/arm64-apple-macosx/debug/DexCleanerPackageTests.xctest/Contents/MacOS/DexCleanerPackageTests.dSYM/Contents/Info.plist",
+    ".build-fsevents-recovery/arm64-apple-macosx/debug/DexCleaner-entitlement.plist",
+    ".build-fsevents-recovery/arm64-apple-macosx/debug/DexCleaner.dSYM/Contents/Info.plist",
+    ".build-fsevents-report/arm64-apple-macosx/debug/DexCleaner-entitlement.plist",
+    ".build-fsevents-report/arm64-apple-macosx/debug/DexCleaner.dSYM/Contents/Info.plist",
+    ".build-fsevents-report/arm64-apple-macosx/debug/DexCleanerPackageTests.xctest/Contents/MacOS/DexCleanerPackageTests.dSYM/Contents/Info.plist",
+    ".build/arm64-apple-macosx/debug/DexCleaner-entitlement.plist",
+    ".build/arm64-apple-macosx/debug/DexCleaner.dSYM/Contents/Info.plist",
+    ".build/arm64-apple-macosx/debug/DexCleanerPackageTests.xctest/Contents/MacOS/DexCleanerPackageTests.dSYM/Contents/Info.plist",
+    ".build/arm64-apple-macosx/release/DexCleaner.dSYM/Contents/Info.plist",
+    ".build/DexCleaner.app/Contents/Info.plist",
+    "CHANGELOG.md",
+    "DexCleaner_MacOS_bible.md",
+    "README.md"
+  ],
+  "git_state": {
+    "available": true,
+    "branch": "codex/final-storage-forensics",
+    "dirty": true,
+    "head": "7b4999ccd8ee6310e1c1452137cb463a4502fe93",
+    "head_subject": "chore: relocate DexCleaner project root",
+    "is_repo": true,
+    "remote_url": "git@github.com:westkitty/DexCleaner_MacOS",
+    "repo_root": "/Users/andrew/DexCleaner",
+    "staged_count": 1,
+    "tracked_modified_count": 1,
+    "untracked_count": 18
+  },
+  "identity": {
+    "name": "DexCleaner",
+    "path": "/Users/andrew/DexCleaner"
+  },
+  "project_type": {
+    "confidence": 0.75,
+    "evidence": [
+      "Found Package.swift"
+    ],
+    "purpose": "Purpose could not be inferred confidently from filesystem signals.",
+    "type": "swift_package"
+  },
+  "recommended_next_actions": [
+    "Inspect the current uncommitted Git changes before making new edits.",
+    "Back up or review fragile configuration files before any risky changes.",
+    "Validate the project with the hinted test command: swift test",
+    "Validate the project with the hinted build command: swift build",
+    "Read `.resurrection/project_report.md` and make one bounded change at a time."
+  ],
+  "scan_timestamp": "2026-07-30T12:01:49+00:00",
+  "scanner_version": "1.1.0",
+  "secret_risks": []
+}

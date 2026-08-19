@@ -45,9 +45,9 @@
       "Operation in progress"
     ],
     "height" : 1800,
-    "meaningfulPixelBytes" : 541945,
+    "meaningfulPixelBytes" : 541735,
     "name" : "02-active-incident",
-    "pngBytes" : 167095,
+    "pngBytes" : 166598,
     "productionView" : "StorageIncidentsView",
     "reduceMotion" : true,
     "renderedText" : [
