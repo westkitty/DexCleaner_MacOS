@@ -1,12 +1,27 @@
 import DexCleanerCore
+import Foundation
 import SwiftUI
 
 struct ContentView: View {
-    @EnvironmentObject private var model: AppModel
-    @State private var selectedTab = ReviewTab.selected
+    @EnvironmentObject var model: AppModel
+    @Environment(\.accessibilityReduceMotion) var reduceMotion
+    @State var tab: ReviewTab = .selected
+    @State var showConfirm = false
+    @State var showDetails = false
+    @State var collapsedGroups: Set<String> = []
+    @State var expandedRows: Set<UUID> = []
+    @State var resultFilter: ResultFilter = .all
     @State private var primarySection = PrimarySection.review
+    @FocusState var searchFocused: Bool
+    @FocusState var confirmationCancelFocused: Bool
 
-    enum PrimarySection: String, CaseIterable, Identifiable { case incidents = "Storage Incidents", review = "Review", history = "Storage History", drivers = "Storage Drivers"; var id: String { rawValue } }
+    enum PrimarySection: String, CaseIterable, Identifiable {
+        case incidents = "Storage Incidents"
+        case review = "Review"
+        case history = "Storage History"
+        case drivers = "Storage Drivers"
+        var id: String { rawValue }
+    }
 
     enum ReviewTab: String, CaseIterable, Identifiable {
         case selected = "Selected"
@@ -18,30 +33,71 @@ struct ContentView: View {
         var id: String { rawValue }
     }
 
+    enum ResultFilter: String, CaseIterable, Identifiable {
+        case all = "All"
+        case authorized = "Authorized"
+        case moved = "Moved"
+        case blocked = "Blocked"
+        case failed = "Failed"
+        case cancelled = "Cancelled"
+        var id: String { rawValue }
+
+        func includes(_ result: CleanupResult) -> Bool {
+            switch self {
+            case .all: return true
+            case .authorized: return result.status == "Authorized for confirmation"
+            case .moved: return result.status == "Moved to Trash"
+            case .blocked: return result.status == "Blocked"
+            case .failed: return result.status == "Failed"
+            case .cancelled: return result.status == "Cancelled"
+            }
+        }
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 header
+                statusBanner
+                nextActionCard
                 workflowStrip
                 metrics
+                scanDetails
+                if model.isWorking { operationProgress }
                 controls
+                selectionImpact
                 filterBar
-                Picker("Section", selection: $primarySection) { ForEach(PrimarySection.allCases) { Text($0.rawValue).tag($0) } }
-                    .pickerStyle(.segmented).frame(maxWidth: 560)
-                if primarySection == .incidents { StorageIncidentsView().environmentObject(model) }
-                else if primarySection == .review { reviewTabs }
-                else if primarySection == .history { StorageHistoryView().environmentObject(model) }
-                else { StorageDriversView().environmentObject(model) }
+                Picker("Section", selection: $primarySection) {
+                    ForEach(PrimarySection.allCases) { Text($0.rawValue).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .frame(maxWidth: 560)
+                if primarySection == .incidents {
+                    StorageIncidentsView().environmentObject(model)
+                } else if primarySection == .review {
+                    reviewTabs
+                } else if primarySection == .history {
+                    StorageHistoryView().environmentObject(model)
+                } else {
+                    StorageDriversView().environmentObject(model)
+                }
                 reportControls
             }
             .padding(18)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(minWidth: 760, minHeight: 620)
-        .sheet(isPresented: $model.cleanupConfirmationRequested) {
-            cleanupConfirmation
+        .sheet(isPresented: $showConfirm, onDismiss: { model.cleanupConfirmationRequested = false }) { cleanupConfirmation }
+        .animation(animation, value: model.phase)
+        .animation(animation, value: model.isWorking)
+        .animation(animation, value: tab)
+        .animation(animation, value: resultFilter)
+        .onChange(of: model.cleanupResults) { _ in
+            resultFilter = .all
         }
-        .onExitCommand { model.dismissPreview() }
+        .onChange(of: model.cleanupConfirmationRequested) { requested in
+            showConfirm = requested
+        }
         .onChange(of: model.requestedPrimarySection) { requested in
             if requested == PrimarySection.incidents.rawValue { primarySection = .incidents }
             if requested == PrimarySection.history.rawValue { primarySection = .history }
@@ -49,431 +105,141 @@ struct ContentView: View {
         }
     }
 
-    private var header: some View {
-        HStack(alignment: .top) {
-            VStack(alignment: .leading, spacing: 5) {
-                Text("DexCleaner")
-                    .font(.system(size: 30, weight: .heavy, design: .rounded))
-                Text("Exact cache authority. Explicit scan. Immutable preview. Finder Trash only.")
-                    .font(.callout.weight(.medium))
-                    .foregroundStyle(.secondary)
-                Text(model.statusText)
-                    .font(.callout)
-                    .textSelection(.enabled)
-            }
-            Spacer()
-            VStack(alignment: .trailing, spacing: 5) {
-                Label(model.phase.rawValue, systemImage: phaseIcon)
-                    .font(.headline)
-                Label(model.scanCompleteness.rawValue, systemImage: completenessIcon)
-                    .font(.caption.weight(.semibold))
-                Text(model.manifestAuthorityText)
-                    .font(.caption2.monospaced())
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
-            }
-        }
-    }
+    var animation: Animation? { reduceMotion ? nil : .easeInOut(duration: 0.18) }
 
-    private var workflowStrip: some View {
-        HStack(spacing: 8) {
-            workflowStep("1", "Scan", active: model.phase == .scanning)
-            Image(systemName: "chevron.right").foregroundStyle(.secondary)
-            workflowStep("2", "Review", active: model.phase == .reviewing)
-            Image(systemName: "chevron.right").foregroundStyle(.secondary)
-            workflowStep("3", "Preview", active: model.phase == .previewed)
-            Image(systemName: "chevron.right").foregroundStyle(.secondary)
-            workflowStep("4", "Confirm Trash Move", active: model.phase == .cleaning || model.phase == .complete)
-            Spacer()
-            if model.isWorking {
-                ProgressView()
-                    .controlSize(.small)
-                    .accessibilityLabel("Operation in progress")
-            }
-        }
-        .padding(10)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
-    }
-
-    private func workflowStep(_ number: String, _ title: String, active: Bool) -> some View {
-        Label {
-            Text("\(number). \(title)").font(.caption.weight(active ? .bold : .regular))
-        } icon: {
-            Image(systemName: active ? "circle.inset.filled" : "circle")
-        }
-        .accessibilityLabel("Step \(number), \(title)\(active ? ", current" : "")")
-    }
-
-    private var metrics: some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 10)], spacing: 10) {
-            metricCards
-        }
-    }
-
-    @ViewBuilder
-    private var metricCards: some View {
-        metric("Available for work", model.availableForWorkText, "internaldrive")
-        metric("Immediately free", model.immediatelyFreeText, "externaldrive")
-        metric("Total capacity", model.totalCapacityText, "internaldrive.fill")
-        metric("Used estimate", model.usedEstimateText, "chart.pie")
-        metric("Potentially purgeable", model.potentiallyPurgeableText, "arrow.triangle.2.circlepath")
-        metric("Safe cleanable", model.cleanableSizeText, "checkmark.shield")
-        metric("Selected", model.selectedSizeText, "checklist")
-        metric("Moved to Trash", model.lastTrashSizeText, "trash")
-        metric("Verified capacity change", model.lastCapacityChangeText, "arrow.left.arrow.right")
-        metric("Measurement", model.measurementStatusText, "waveform.path.ecg")
-        metric("Access check", model.accessStatus, "lock.shield")
-    }
-
-    private func metric(_ title: String, _ value: String, _ icon: String) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Label(title, systemImage: icon).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-            Text(value).font(.headline).lineLimit(1).minimumScaleFactor(0.72)
-        }
-        .padding(10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
-    }
-
-    private var controls: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 9) { commandButtons }
-            VStack(alignment: .leading, spacing: 8) { commandButtons }
-        }
-        .buttonStyle(DexButtonStyle())
-    }
-
-    @ViewBuilder
-    private var commandButtons: some View {
-        Button { model.refreshCapacity() } label: { Label("Refresh Capacity", systemImage: "arrow.clockwise") }
-            .disabled(model.isWorking)
-            .help("Refresh the lightweight native capacity measurement")
-        Button { model.scan() } label: { Label("Quick Scan", systemImage: "magnifyingglass") }
-            .keyboardShortcut("r", modifiers: .command)
-            .disabled(model.isWorking)
-            .help("Scan exact manifest targets and protected/access markers")
-        Button { model.cancel() } label: { Label("Cancel", systemImage: "xmark.circle") }
-            .disabled(!model.isWorking)
-            .help("Cancel active scan or cleanup work")
-        Button { model.selectVisibleCandidates(); selectedTab = .selected } label: { Label("Select All Verified Safe Candidates", systemImage: "checklist") }
-            .disabled(model.cleanableItems.isEmpty || model.isWorking)
-            .help("Select only candidates visible under the current profile and search")
-        Button { model.clearSelection(); selectedTab = .selected } label: { Label("Clear", systemImage: "eraser") }
-            .disabled(model.selectedItems.isEmpty || model.isWorking)
-        Button { model.previewSelected(); selectedTab = .results } label: { Label("Preview", systemImage: "eye") }
-            .keyboardShortcut("p", modifiers: .command)
-            .disabled(model.selectedItems.isEmpty || model.isWorking)
-            .help("Create an immutable cleanup plan without moving anything")
-        Button { model.requestCleanupConfirmation() } label: { Label("Move to Trash", systemImage: "trash") }
-            .buttonStyle(.borderedProminent)
-            .disabled(!model.canClean)
-            .help("Available only after the current selection has been previewed")
-        Spacer()
-    }
-
-    private var filterBar: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 10) { filterFields }
-            VStack(alignment: .leading, spacing: 8) { filterFields }
-        }
-    }
-
-    @ViewBuilder
-    private var filterFields: some View {
-        Picker("Profile", selection: $model.activeProfile) {
-            ForEach(CleanupProfile.allCases) { Text($0.rawValue).tag($0) }
-        }
-        .pickerStyle(.segmented)
-        .frame(maxWidth: 420)
-        TextField("Search name, path, group, manifest ID", text: $model.searchText)
-            .textFieldStyle(.roundedBorder)
-            .accessibilityLabel("Search scan findings")
-        Picker("Sort within groups", selection: $model.sortMode) {
-            ForEach(ScanSortMode.allCases) { Text($0.rawValue).tag($0) }
-        }
-        .frame(width: 180)
-    }
-
-    private var reviewTabs: some View {
-        TabView(selection: $selectedTab) {
-            scanPanel(title: "Selected", subtitle: "Always visible, even when filters change", items: model.selectedItems, interactive: true, showMeasuredBytes: true)
-                .tabItem { Label("Selected (\(model.selectedItems.count))", systemImage: "checklist") }
-                .tag(ReviewTab.selected)
-            scanPanel(title: "Cleanup candidates", subtitle: "Exact manifest targets only", items: model.cleanableItems, interactive: true, showMeasuredBytes: true)
-                .tabItem { Label("Candidates (\(model.cleanableItems.count))", systemImage: "checkmark.shield") }
-                .tag(ReviewTab.cleanable)
-            scanPanel(title: "Audit only", subtitle: "Individual measurements may overlap; no aggregate reclaim claim", items: model.auditItems, interactive: false, showMeasuredBytes: false)
-                .tabItem { Label("Audit (\(model.auditItems.count))", systemImage: "doc.text.magnifyingglass") }
-                .tag(ReviewTab.audit)
-            scanPanel(title: "Protected presence markers", subtitle: "Counts only; no false byte total", items: model.protectedItems, interactive: false, showMeasuredBytes: false)
-                .tabItem { Label("Protected (\(model.protectedItems.count))", systemImage: "hand.raised") }
-                .tag(ReviewTab.protected)
-            resultsPanel
-                .tabItem { Label("Results (\(model.cleanupResults.count))", systemImage: "list.bullet.rectangle") }
-                .tag(ReviewTab.results)
-            issuesPanel
-                .tabItem { Label("Issues (\(model.scanIssues.count))", systemImage: "exclamationmark.triangle") }
-                .tag(ReviewTab.issues)
-        }
-        .frame(minHeight: 310)
-    }
-
-    private func scanPanel(title: String, subtitle: String, items: [ScanItem], interactive: Bool, showMeasuredBytes: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title).font(.headline)
-                    Text(subtitle).font(.caption).foregroundStyle(.secondary)
-                }
-                Spacer()
-                if showMeasuredBytes {
-                    Text(ByteCountFormatter.string(fromByteCount: items.reduce(0) { $0 + $1.sizeBytes }, countStyle: .file))
-                        .font(.caption.monospacedDigit().weight(.semibold))
-                } else {
-                    Text("\(items.count) paths").font(.caption.monospacedDigit().weight(.semibold))
-                }
-            }
-            List {
-                let grouped = Dictionary(grouping: items, by: { $0.group })
-                ForEach(grouped.keys.sorted(), id: \.self) { group in
-                    Section(group) {
-                        ForEach(grouped[group] ?? []) { item in
-                            ScanItemRow(item: item, interactive: interactive)
-                        }
-                    }
-                }
-            }
-            .listStyle(.inset)
-        }
-        .padding(10)
-    }
-
-    private var resultsPanel: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("Complete preview and cleanup results").font(.headline)
-                Spacer()
-                if model.cleanupPlan != nil { Button("Close Preview") { model.dismissPreview() }.dexInteractive() }
-                if model.lastTrashBytes > 0 {
-                    Button { model.openTrash() } label: { Label("Open Trash", systemImage: "trash") }
-                }
-            }
-            List(model.cleanupResults) { result in
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        Label(result.status, systemImage: resultIcon(result.status)).font(.headline)
-                        Spacer()
-                        Button { model.copyResult(result) } label: { Label("Copy", systemImage: "doc.on.doc") }
-                            .buttonStyle(.borderless)
-                    }
-                    Text(result.path).font(.caption.monospaced()).textSelection(.enabled)
-                    Text(result.detail).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
-                }
-                .padding(.vertical, 4)
-            }
-            if model.cleanupResults.isEmpty {
-                placeholder("No results", icon: "list.bullet.rectangle", detail: "Run Preview before cleanup.")
-            }
-        }
-        .padding(10)
-    }
-
-    private var issuesPanel: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Scan completeness: \(model.scanCompleteness.rawValue)").font(.headline)
-            List(model.scanIssues) { issue in
-                VStack(alignment: .leading, spacing: 4) {
-                    Label(issue.kind.rawValue, systemImage: "exclamationmark.triangle")
-                        .font(.headline)
-                    Text(issue.area).font(.caption.weight(.semibold))
-                    Text(issue.detail).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
-                }
-                .padding(.vertical, 4)
-            }
-            if model.scanIssues.isEmpty {
-                placeholder("No scan issues recorded", icon: "checkmark.shield", detail: "A complete scan will show no issues here.")
-            }
-        }
-        .padding(10)
-    }
-
-    private var reportControls: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Divider()
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 10) { reportFields }
-                VStack(alignment: .leading, spacing: 8) { reportFields }
-            }
-            DisclosureGroup("Additional large-file audit exclusions") {
-                TextField("Comma-separated home-relative paths", text: $model.excludedLargeFileRootsText)
-                    .textFieldStyle(.roundedBorder)
-                Text("Mandatory privacy exclusions are always enforced. Absolute paths and parent traversal are rejected. Changes apply on the next scan.")
-                    .font(.caption2).foregroundStyle(.secondary)
-            }
-            Text(model.reportStatusText).font(.caption2).foregroundStyle(.secondary).textSelection(.enabled)
-        }
-        .buttonStyle(DexButtonStyle())
-    }
-
-    @ViewBuilder
-    private var reportFields: some View {
-        Button { model.requestAccessSettings() } label: { Label("Access Settings", systemImage: "lock.open") }
-        Toggle("Launch at login", isOn: Binding(
-            get: { model.launchAtLoginEnabled },
-            set: { _ in model.toggleLaunchAtLogin() }
-        ))
-        .toggleStyle(.switch)
-        Picker("Format", selection: $model.reportFormat) {
-            ForEach(ReportFormat.allCases) { Text($0.rawValue).tag($0) }
-        }.frame(width: 150)
-        Picker("Paths", selection: $model.pathRedaction) {
-            ForEach(PathRedactionMode.allCases) { Text($0.rawValue).tag($0) }
-        }.frame(width: 180)
-        Button { model.chooseReportDestination() } label: { Label("Report Folder", systemImage: "folder") }
-        Button { model.writeReport() } label: { Label("Write Report", systemImage: "doc.text") }
-            .disabled(model.isWorking)
-        Button { model.openReportsFolder() } label: { Label("Open Reports", systemImage: "arrow.up.forward.app") }
-            .disabled(model.reportDestinationDirectory == nil && model.lastReportURL == nil)
-        Spacer()
-    }
-
-    private var cleanupConfirmation: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Label("Confirm exact Finder Trash move", systemImage: "exclamationmark.shield")
-                .font(.title2.bold())
-            Text("This plan was created by Preview. Every target will be revalidated immediately before movement.")
-            if let plan = model.cleanupPlan {
-                Text("Plan \(plan.id.uuidString) · \(plan.items.count) items · \(ByteCountFormatter.string(fromByteCount: plan.totalBytes, countStyle: .file))")
-                    .font(.caption.monospaced()).textSelection(.enabled)
-                Text("Expires \(plan.expiresAt.formatted(date: .abbreviated, time: .standard)) · manifest \(plan.manifestVersion) · \(plan.manifestChecksum)")
-                    .font(.caption2.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
-                List(plan.items) { item in
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(item.displayName).font(.headline)
-                        Text(item.path).font(.caption.monospaced()).textSelection(.enabled)
-                        Text(item.safetyReason).font(.caption).foregroundStyle(.secondary)
-                    }
-                    .padding(.vertical, 3)
-                }
-            }
-            Text("Items will be moved to Finder Trash. Disk space may not become available until Trash is emptied manually.")
-                .font(.callout.weight(.semibold))
-            HStack {
-                Spacer()
-                Button("Cancel", role: .cancel) { model.cleanupConfirmationRequested = false }
-                Button("Move Exact Plan to Trash", role: .destructive) {
-                    model.cleanupConfirmationRequested = false
-                    model.cleanConfirmed()
-                    selectedTab = .results
-                }
-                .disabled(!model.canClean)
-            }
-        }
-        .padding(20)
-        .frame(minWidth: 620, minHeight: 460)
-    }
-
-
-    private func placeholder(_ title: String, icon: String, detail: String) -> some View {
-        VStack(spacing: 8) {
-            Spacer()
-            Image(systemName: icon).font(.largeTitle).foregroundStyle(.secondary)
-            Text(title).font(.headline)
-            Text(detail).font(.caption).foregroundStyle(.secondary)
-            Spacer()
-        }
-        .frame(maxWidth: .infinity, minHeight: 140)
-        .accessibilityElement(children: .combine)
-    }
-    private var phaseIcon: String {
+    var shouldReviewOperationResults: Bool {
+        guard model.cleanupPlan == nil, !model.cleanupResults.isEmpty else { return false }
         switch model.phase {
-        case .idle: return "pause.circle"
-        case .scanning: return "magnifyingglass"
-        case .reviewing: return "doc.text.magnifyingglass"
-        case .previewed: return "checkmark.seal"
-        case .cleaning: return "trash"
-        case .cancelled: return "xmark.circle"
-        case .complete: return "checkmark.circle"
-        case .failed: return "exclamationmark.triangle"
+        case .failed, .cancelled, .complete:
+            return true
+        default:
+            return false
         }
     }
 
-    private var completenessIcon: String {
-        switch model.scanCompleteness {
-        case .complete: return "checkmark.circle"
-        case .partial: return "exclamationmark.circle"
-        case .cancelled: return "xmark.circle"
-        case .failed: return "exclamationmark.triangle"
-        case .notRun: return "circle.dashed"
+    var header: some View {
+        HStack(alignment: .firstTextBaseline) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("DexCleaner").font(.system(size: 30, weight: .heavy, design: .rounded))
+                Text("Exact cache authority. Explicit scan. Immutable preview. Finder Trash only.")
+                    .font(.callout.weight(.medium)).foregroundStyle(.secondary)
+            }
+            Spacer()
+            StatusPill(text: "No background cleaning", systemImage: "shield")
         }
     }
 
-    private func resultIcon(_ status: String) -> String {
-        switch status {
-        case "Moved to Trash": return "trash"
-        case "Failed", "Blocked": return "exclamationmark.triangle"
-        case "Cancelled": return "xmark.circle"
-        default: return "checkmark.seal"
-        }
-    }
-}
-
-private struct ScanItemRow: View {
-    @EnvironmentObject private var model: AppModel
-    let item: ScanItem
-    let interactive: Bool
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(alignment: .top, spacing: 10) {
-                if interactive {
-                    Toggle("Select \(item.displayName)", isOn: Binding(
-                        get: { model.items.first(where: { $0.id == item.id })?.isSelected ?? false },
-                        set: { _ in model.toggle(item) }
-                    ))
-                    .labelsHidden()
-                    .toggleStyle(.checkbox)
-                    .accessibilityLabel("Select \(item.displayName)")
-                }
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(alignment: .firstTextBaseline) {
-                        Text(item.displayName).font(.headline)
-                        if item.owningProcessRunning {
-                            Label("Owning app appears active", systemImage: "exclamationmark.circle")
-                                .font(.caption2.weight(.semibold))
+    var statusBanner: some View {
+        TimelineView(.periodic(from: .now, by: 60)) { context in
+            AdaptiveStack {
+                HStack(alignment: .top, spacing: 12) {
+                    Image(systemName: phaseIcon).font(.title2).accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text(model.phase.rawValue).font(.headline)
+                            StatusPill(text: model.scanCompleteness.rawValue, systemImage: completenessIcon)
+                            StatusPill(
+                                text: model.scanFreshnessText(at: context.date),
+                                systemImage: model.scanIsStale(at: context.date) ? "clock" : "clock"
+                            )
                         }
-                        Spacer()
-                        Text(item.sizeBytes > 0 ? item.formattedSize : "Not measured")
-                            .font(.caption.monospacedDigit().weight(.semibold))
+                        Text(model.statusText).font(.callout).textSelection(.enabled)
+                        Text(model.manifestAuthorityText).font(.caption2.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
+                        if model.scanIsStale(at: context.date) {
+                            Label("The visible scan is over thirty minutes old. Re-scan before relying on audit freshness.", systemImage: "clock")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
                     }
-                    Text(item.path).font(.caption.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
-                    Text("\(item.risk.rawValue) · \(item.category.rawValue) · ID: \(item.manifestID ?? "none")")
-                        .font(.caption2.weight(.semibold))
-                    Text(item.explanation).font(.caption2).foregroundStyle(.secondary)
-                    Text("Recovery: \(item.recoveryNote)").font(.caption2).foregroundStyle(.secondary)
-                    Text(measurementText).font(.caption2).foregroundStyle(.secondary)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("DexCleaner status")
+                    .accessibilityValue("\(model.phase.rawValue). Scan \(model.scanCompleteness.rawValue). \(model.scanFreshnessText(at: context.date)). \(model.statusText)")
+                    Spacer(minLength: 8)
+                    HStack {
+                        if !model.scanIssues.isEmpty {
+                            Button("Review \(model.scanIssues.count) Issue\(model.scanIssues.count == 1 ? "" : "s")") { tab = .issues }
+                        }
+                        if !model.warnings.isEmpty || !model.permissionDiagnostics.isEmpty {
+                            Button("Scan Details") { showDetails = true }
+                        }
+                    }.buttonStyle(.bordered)
                 }
-                .contentShape(Rectangle())
-                .onTapGesture { if interactive { model.toggle(item) } }
             }
-            HStack {
-                Button { model.reveal(item) } label: { Label("Reveal", systemImage: "finder") }
-                    .buttonStyle(.borderless).disabled(!item.path.hasPrefix("/"))
-                Button { model.copyPath(item) } label: { Label("Copy Path", systemImage: "doc.on.doc") }
-                    .buttonStyle(.borderless)
-            }
+            .padding(12).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
         }
-        .padding(.vertical, 5)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .contentShape(Rectangle())
-        .accessibilityAction(named: Text("Toggle selection")) { if interactive { model.toggle(item) } }
-        .accessibilityElement(children: .contain)
     }
 
-    private var measurementText: String {
-        if let date = item.measuredAt {
-            return "Measurement: \(item.measurementSource.rawValue), \(date.formatted(date: .abbreviated, time: .standard))"
+    var nextActionCard: some View {
+        TimelineView(.periodic(from: .now, by: 15)) { context in
+            HStack(alignment: .center, spacing: 12) {
+                Image(systemName: nextActionIcon(at: context.date)).font(.title2).accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Next safe action").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                    Text(nextActionTitle(at: context.date)).font(.headline)
+                    Text(nextActionDetail(at: context.date)).font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 10)
+                Button(nextActionButtonTitle(at: context.date)) { performNextAction(at: context.date) }
+                    .buttonStyle(.borderedProminent)
+            }
+            .padding(12)
+            .background(Color.secondary.opacity(0.05), in: RoundedRectangle(cornerRadius: 12))
         }
-        return "Measurement: \(item.measurementSource.rawValue)"
     }
+
+    func nextActionTitle(at date: Date) -> String {
+        if model.isWorking { return "Let the active operation finish or cancel it" }
+        if model.scanCompleteness == .notRun { return "Run an explicit scan" }
+        if !model.scanIssues.isEmpty && model.scanCompleteness != .complete { return "Review scan issues before trusting gaps" }
+        if model.canClean(at: date) { return "Confirm the authorized Finder Trash move" }
+        if model.cleanupPlan != nil { return "Preview authorization expired - run Preview again" }
+        if shouldReviewOperationResults { return "Review operation results" }
+        if model.selectedItems.isEmpty { return "Review exact cleanup candidates" }
+        return "Preview the selected exact paths"
+    }
+
+    func nextActionDetail(at date: Date) -> String {
+        if model.isWorking { return "Cancellation does not authorize any new cleanup target." }
+        if model.scanCompleteness == .notRun { return "DexCleaner stays idle until you request a scan." }
+        if !model.scanIssues.isEmpty && model.scanCompleteness != .complete { return "Issues are evidence, not silent zeroes." }
+        if model.canClean(at: date) { return "The final move still revalidates every previewed target immediately before Trash." }
+        if model.cleanupPlan != nil { return "Expired authorization cannot move anything. Re-preview the unchanged selection to establish a new plan." }
+        if shouldReviewOperationResults { return "Blocked, failed, cancelled, and moved outcomes remain visible before you start another workflow." }
+        if model.selectedItems.isEmpty { return "Selection is explicit and starts empty after each scan." }
+        return "Preview is read-only and binds the exact selection to filesystem identity."
+    }
+
+    func nextActionButtonTitle(at date: Date) -> String {
+        if model.isWorking { return "Cancel" }
+        if model.scanCompleteness == .notRun { return "Scan Now" }
+        if !model.scanIssues.isEmpty && model.scanCompleteness != .complete { return "Review Issues" }
+        if model.canClean(at: date) { return "Review Confirmation" }
+        if model.cleanupPlan != nil { return "Preview Again" }
+        if shouldReviewOperationResults { return "Review Results" }
+        if model.selectedItems.isEmpty { return "Review Candidates" }
+        return "Preview \(model.selectedItems.count)"
+    }
+
+    func nextActionIcon(at date: Date) -> String {
+        if model.isWorking { return "hourglass" }
+        if model.scanCompleteness == .notRun { return "magnifyingglass" }
+        if !model.scanIssues.isEmpty && model.scanCompleteness != .complete { return "exclamationmark.triangle" }
+        if model.canClean(at: date) { return "checkmark.shield" }
+        if model.cleanupPlan != nil { return "arrow.clockwise" }
+        if shouldReviewOperationResults { return "list.bullet.rectangle" }
+        if model.selectedItems.isEmpty { return "list.bullet.rectangle" }
+        return "doc.text"
+    }
+
+    func performNextAction(at date: Date) {
+        if model.isWorking { model.cancel(); return }
+        if model.scanCompleteness == .notRun { model.scan(); return }
+        if !model.scanIssues.isEmpty && model.scanCompleteness != .complete { tab = .issues; return }
+        if model.canClean(at: date) { showConfirm = true; return }
+        if model.cleanupPlan != nil { model.previewSelected(); tab = .results; return }
+        if shouldReviewOperationResults { tab = .results; return }
+        if model.selectedItems.isEmpty { tab = .cleanable; return }
+        model.previewSelected()
+        tab = .results
+    }
+
 }

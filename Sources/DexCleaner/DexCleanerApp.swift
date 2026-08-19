@@ -77,6 +77,14 @@ struct DexCleanerApp: App {
                 Label("Recorder: \(model.recorderStatusText) · \(model.recorderCoverageText)", systemImage: "record.circle")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(model.recorderStatusText == "Recording" ? Color.secondary : Color.orange)
+                Label(model.scanFreshnessText(), systemImage: "clock")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                if model.cleanupPlan != nil && !model.canClean {
+                    Label("Preview stale or expired", systemImage: "lock.shield")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.orange)
+                }
                 if let active = model.diagnosticOperations.first, active.state == .running {
                     HStack { ProgressView().controlSize(.small); Text("\(active.type): \(active.phase)").font(.caption) }
                         .accessibilityLabel("Active diagnostic operation: \(active.type), \(active.phase)")
@@ -99,6 +107,9 @@ struct DexCleanerApp: App {
                     Button("Refresh Capacity") { model.refreshCapacity() }.disabled(model.isWorking).dexInteractive()
                     Button("Quick Scan") { model.scan() }.disabled(model.isWorking).dexInteractive()
                     Button("Investigate Now") { model.investigateNow() }.disabled(model.isWorking).dexInteractive()
+                }
+                if model.isWorking {
+                    Button("Cancel Active Operation") { model.cancel() }.dexInteractive()
                 }
                 Button("Select All Verified Safe Candidates") { model.selectVisibleCandidates() }
                     .disabled(model.cleanableItems.isEmpty || model.isWorking)

@@ -1969,13 +1969,16 @@ final class UICertificationTests: XCTestCase {
         let fileManager = FileManager.default
         let root = URL(fileURLWithPath: fileManager.currentDirectoryPath)
         let executableCandidates = [
+            root.appendingPathComponent(".build-final/debug/DexCleaner"),
+            root.appendingPathComponent(".build-final/arm64-apple-macosx/debug/DexCleaner"),
             root.appendingPathComponent(".build-1_3_1-release-gate/debug/DexCleaner"),
             root.appendingPathComponent(".build-1_3_1-release-gate/arm64-apple-macosx/debug/DexCleaner")
         ]
         guard let executable = executableCandidates.first(where: { fileManager.isExecutableFile(atPath: $0.path) }) else {
-            return XCTFail("The built DexCleaner executable was not found in the release-gate scratch path.")
+            return XCTFail("The built DexCleaner executable was not found in a configured scratch path.")
         }
-        let output = root.appendingPathComponent("docs/verification/1.3.1/rendered", isDirectory: true)
+        let output = fileManager.temporaryDirectory
+            .appendingPathComponent("DexCleaner-UICertification-\(UUID().uuidString)", isDirectory: true)
         let process = Process()
         process.executableURL = executable
         var environment = ProcessInfo.processInfo.environment

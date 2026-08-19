@@ -1,4 +1,4 @@
-.PHONY: build run test app verify-app dmg audit preview bug-sweep
+.PHONY: build run test app verify-app dmg audit preview ui-contract bug-sweep
 
 build:
 	swift build --scratch-path .build-final
@@ -25,7 +25,11 @@ audit:
 preview:
 	bash scripts/safe_cleanup_preview.sh
 
+ui-contract:
+	python3 scripts/verify_ui_contract.py
+
 bug-sweep:
+	python3 scripts/verify_ui_contract.py
 	swift test --scratch-path .build-final
 	swift build --scratch-path .build-final
 	swift package describe >/dev/null

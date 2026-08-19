@@ -8,27 +8,28 @@ It is not a broad cleaner. It grants cleanup authority only to exact, validated,
 
 ## Current release posture
 
-The core safety refactor is implemented on the `implement/adversarial-safety-refactor` branch.
+The 1.0 safety refactor is integrated on `main`. Two production UI/UX polish passes now layer clearer workflow state, diagnostics, keyboard/focus behavior, report feedback, reduced-motion handling, scan/measurement freshness, safer bulk selection, grouped review, result filtering, actionable issue recovery, and live Preview-expiry feedback on top of the same cleanup-authority model.
 
-Validated in the available Linux Swift environment:
+The repository CI baseline before this second UI/UX pass was green on both Linux and macOS:
 
-- `swift test`: 22 tests, 0 failures
-- `swift build`: pass
-- Swift parser check for all macOS app source files: pass
-- manifest JSON validation: pass
-- shell syntax and source guards: included in `make bug-sweep`
+- `make bug-sweep`: passed in the Linux CI job
+- release-mode core tests: passed
+- macOS tests and executable build: passed
+- app-bundle resource discovery and codesign verification: passed
 
-Still required on actual macOS before release:
+`make ui-contract` now verifies both exact UI/UX ledgers: the original `UIX-01` through `UIX-25` set and the second-pass `UIX2-01` through `UIX2-25` set, plus key source contracts.
 
-- compile and launch the SwiftUI executable target
+Still required on actual interactive macOS hardware before public release:
+
+- launch and exercise the SwiftUI app at narrow and wide window sizes
 - verify Finder Trash movement and restoration
 - verify cancellation during real scans and Trash moves
 - verify Full Disk Access messaging
-- verify keyboard and VoiceOver navigation
+- verify keyboard, enlarged-text, reduced-motion, and VoiceOver behavior
 - build, sign, verify, install, and launch the app bundle and DMG
 - run the clean-account release checklist
 
-No claim of release readiness exists until those checks pass.
+No claim of public release readiness exists until those checks pass.
 
 ## Safety architecture
 
@@ -65,21 +66,29 @@ A scan reports:
 - explicit completeness and issue status
 - fresh versus cached measurement timestamps
 
+Warnings, measured cleanable summaries, and representative access diagnostics are visible in the main interface through Scan Details rather than being report-only state. The latest scan time remains visible, and audit freshness is called out when the displayed scan is older than thirty minutes.
+
 ### 2. Review
 
-The user may filter and search findings. Selected targets remain visible in a dedicated Selected tab. Changing the cleanup profile clears selection to prevent hidden authority.
+The user may filter and search findings. Selected targets remain visible in a dedicated Selected review area. Changing the cleanup profile clears selection to prevent hidden authority.
+
+Command-F focuses search. Command-1 through Command-6 switch review areas. Search can be cleared explicitly or with Escape while focused. Findings are grouped by owning product, groups and row details can be collapsed, and measurement age is visible without changing cleanup authority.
+
+`Add Visible` is additive: filtering no longer causes the bulk selection action to silently drop already selected items outside the current search. `Clear Visible` and `Clear All` make deselection scope explicit.
 
 ### 3. Preview
 
 Preview performs no mutation. It creates an immutable cleanup plan only when every selected target passes the safety engine and has a readable filesystem identity.
 
+The interface explains why cleanup is unavailable, warns when selected owning applications appear active, and re-evaluates the Preview authorization window so an expired plan does not continue to look ready. If a Preview is invalidated by a selection change, stale Preview results are cleared so a later report cannot mix old Preview outcomes with a new selection.
+
 ### 4. Confirm and move
 
-The confirmation sheet lists every exact path and estimated byte count. Cleanup revalidates the plan and then moves authorized targets to Finder Trash.
+The confirmation sheet lists every exact path and estimated byte count, shows plan identity and a live authorization countdown, can copy the exact plan paths for audit, and initially focuses the non-destructive Cancel action. Cleanup revalidates the plan and then moves authorized targets to Finder Trash.
 
 ## Removed from the first trustworthy release
 
-The following features were deliberately removed:
+The following features remain deliberately absent:
 
 - background scanning
 - launch at login
@@ -93,7 +102,9 @@ Git temporary packs remain visible as audit-only findings.
 
 ## Reports and ledger
 
-DexCleaner writes local Markdown or JSON reports with optional home-path redaction. Reports include:
+DexCleaner writes local Markdown or JSON reports with optional home-path redaction. The interface previews the current report mode, finding/result counts, format, path treatment, and cleanup-plan metadata state before writing.
+
+Reports include:
 
 - app version
 - manifest version and checksum
@@ -114,6 +125,12 @@ Preview and cleanup operations are appended to:
 No telemetry, analytics, cloud upload, or network dependency is implemented.
 
 ## Development
+
+Run both UI/UX count and source contracts:
+
+```bash
+make ui-contract
+```
 
 Run the full local sweep:
 
@@ -151,10 +168,16 @@ Sources/DexCleanerCore/OperationLedger.swift
 Sources/DexCleanerCore/ReportWriter.swift
 Sources/DexCleaner/AppModel.swift
 Sources/DexCleaner/ContentView.swift
+Sources/DexCleaner/DexCleanerApp.swift
 Tests/DexCleanerTests/DexCleanerTests.swift
 docs/SAFETY_POLICY.md
 docs/MANIFEST_SCHEMA.md
 docs/RELEASE_CHECKLIST.md
+docs/UI_UX_POLISH_2026-08-16.md
+docs/UI_UX_POLISH_ROUND2_2026-08-16.md
+scripts/verify_ui_contract.py
+OPERATIONAL_STATE.md
+DexCleaner_MacOS_bible.md
 BUG_SWEEP_REPORT.md
 CHANGELOG.md
 ```
