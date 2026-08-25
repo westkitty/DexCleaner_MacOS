@@ -19,6 +19,10 @@ public enum ProcessDetector {
         let expression = patterns.map { "[\($0.prefix(1))]\($0.dropFirst())" }.joined(separator: "|")
         return Shell.run("/usr/bin/pgrep", ["-f", expression], timeout: 2).status == 0
     }
+
+    public static func homebrewOperationIsRunning() -> Bool {
+        Shell.run("/usr/bin/pgrep", ["-f", "(^|/)[b]rew([[:space:]]|$)"], timeout: 2).status == 0
+    }
 }
 
 public enum ExactOpenFileState: Hashable, Sendable {

@@ -27,11 +27,11 @@ DexCleaner will not add generic permanent deletion, Trash emptying, process kill
 - [x] Phase 3: read-only project-artifact discovery with bounded traversal and cancellation
 - [x] Phase 4: narrowly proven Node `node_modules` and Rust `target` cleanup eligibility
 - [x] Phase 5: action receipts, truthful accounting, progress, freshness, safe retry, re-rank, STOP logic
-- [ ] Phase 6: dedicated Homebrew staging adapter
-- [ ] Phase 7: managed system, FileProvider, and cloud protection adapter
-- [ ] Phase 8: backup and rollback restorability engine
-- [ ] Phase 9: physical-identity-aware exact duplicate analyzer
-- [ ] Phase 10: extended read-only ecosystem, model-store, and toolchain classification
+- [x] Phase 6: dedicated Homebrew staging adapter
+- [x] Phase 7: managed system, FileProvider, and cloud protection adapter
+- [x] Phase 8: backup and rollback restorability engine
+- [x] Phase 9: physical-identity-aware exact duplicate analyzer
+- [x] Phase 10: extended read-only ecosystem, model-store, and toolchain classification
 - [ ] Phase 11: guided cleanup campaign orchestration and user interface
 - [ ] Phase 12: adversarial hardening, documentation, release validation, and integration decision
 
@@ -68,6 +68,20 @@ Versioned action receipts now distinguish attempted, completed, skipped, stale, 
 Reclaim accounting separates logical candidate bytes, allocated bytes, moved-to-Trash bytes, and observed free-space samples. Physical reclaim remains explicitly unknown unless both filesystem samples exist; moving an item to Finder Trash is never reported as freed space. Progress snapshots count candidate terminal states rather than estimating from bytes. STOP recommendations expose their inputs and rule version and can be recomputed from the same values.
 
 Five focused fixtures cover idempotent absence, partial completion, transparent STOP recomputation, campaign freshness/re-ranking, and versioned Codable progress/receipts. The repository-wide `make bug-sweep` gate passed 123 tests with 0 failures and 3 intentionally gated skips, followed by the build, parser, manifest, shell, cancellation, resource, and destructive-authority checks.
+
+## Phase 6-10 evidence
+
+The Homebrew adapter grants authority only to an exact descendant of a separately verified staging root after prefix/layout identity, installed-root exclusion, symlink refusal, inactive-manager state, closed handles, and object identity are proven. Cellar/Caskroom/installed roots, broad roots, active operations, unavailable open-state checks, and unsupported layouts fail closed. Homebrew findings still enter the ordinary immutable Preview and final-preflight path.
+
+Typed managed-resource classification protects FileProvider/FPCK, CloudDocs, Mobile Documents, CloudStorage, DriveFS, Dropbox, OneDrive, and established system-service state before generic authority is considered. Age and size cannot override that ownership classification, and no process-termination path exists.
+
+Backup validators now require isolated Git-bundle restoration plus required ref/object coverage, or configured macOS application identity/structure/executable/version proof. Integrity alone is insufficient; a broken retained generation blocks removal, and different semantic fingerprints preserve unique historical versions. Retention output is review-oriented and contains no private absolute-path profile.
+
+Exact duplicate analysis is bounded and cancellable, groups by size, collapses confirmed device/inode aliases, hashes only physical-object collisions, and reports equal content separately from caller-supplied semantic role. All generic sets remain review-only and physical reclaim remains unknown. When physical identity is unavailable, paths remain distinct rather than being falsely collapsed.
+
+Gradle/Android, Xcode, Kotlin/Native, Python, artificial-intelligence model, and toolchain classifications are read-only. Installed, active, default, project-referenced, and shared-blob capabilities remain protected or review-only; no new cleanup authority was granted.
+
+Eight focused adapter fixtures passed. The repository-wide `make bug-sweep` gate passed 131 tests with 0 failures and 3 intentionally gated skips, followed by all existing build and static safety checks.
 
 ## Known platform boundary
 

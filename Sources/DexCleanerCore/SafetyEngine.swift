@@ -23,6 +23,9 @@ public enum SafetyEngine {
         guard path != homePath && path != "/" else { return SafetyDecision(allowed: false, reason: "Refusing home or root path.") }
         guard path.hasPrefix(homePath + "/") else { return SafetyDecision(allowed: false, reason: "Path is outside the current user's home directory.") }
 
+        let managed = ManagedResourceClassifier.classify(path: path)
+        guard managed.kind == .unmanaged else { return SafetyDecision(allowed: false, reason: managed.reason) }
+
         let broadRoots = [
             homePath + "/.cache", homePath + "/Library/Caches", homePath + "/Library/Application Support",
             homePath + "/Library", homePath + "/Projects", homePath + "/Developer",
@@ -34,6 +37,9 @@ public enum SafetyEngine {
         if item.evidence?.provenance.sourceKind == .dedicatedAdapter {
             guard FileManager.default.fileExists(atPath: path) else { return SafetyDecision(allowed: false, reason: "Target no longer exists.") }
             guard FileIdentity.capture(path: path) != nil else { return SafetyDecision(allowed: false, reason: "Target identity could not be read.") }
+            if item.evidence?.provenance.ruleID == HomebrewStagingAdapter.ruleID {
+                return HomebrewSafetyAdapter.decision(path: item.path, manifestID: item.manifestID ?? "", evidence: item.evidence, home: homePath)
+            }
             return ProjectArtifactSafetyAdapter.decision(for: item, home: homePath)
         }
 
@@ -60,7 +66,12 @@ public enum SafetyEngine {
             return SafetyDecision(allowed: false, reason: "Previewed target no longer carries Safe Trash-only authority.")
         }
         if planItem.evidence?.provenance.sourceKind == .dedicatedAdapter {
-            let adapter = ProjectArtifactSafetyAdapter.decision(for: planItem, home: home)
+            let adapter: SafetyDecision
+            if planItem.evidence?.provenance.ruleID == HomebrewStagingAdapter.ruleID {
+                adapter = HomebrewSafetyAdapter.decision(path: planItem.path, manifestID: planItem.manifestID, evidence: planItem.evidence, identity: planItem.identity, home: home)
+            } else {
+                adapter = ProjectArtifactSafetyAdapter.decision(for: planItem, home: home)
+            }
             guard adapter.allowed else { return adapter }
             guard let current = FileIdentity.capture(path: planItem.path), current == planItem.identity else {
                 return SafetyDecision(allowed: false, reason: "Target identity changed after preview. Run a new scan and preview.")
