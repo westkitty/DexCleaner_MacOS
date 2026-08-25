@@ -927,10 +927,17 @@ final class FSEventsStreamFactoryTests: XCTestCase {
             try await Task.sleep(for: .milliseconds(10))
         }
         XCTAssertEqual(recorder.lastEventID, 13)
+        #if os(macOS)
         XCTAssertTrue(recorder.filesystemEventRecoveryState.userEventsDropped)
         XCTAssertTrue(recorder.filesystemEventRecoveryState.kernelEventsDropped)
         XCTAssertTrue(recorder.filesystemEventRecoveryState.rootChanged)
         XCTAssertEqual(recorder.filesystemEventRecoveryState.evidenceCompleteness, .partial)
+        #else
+        XCTAssertFalse(recorder.filesystemEventRecoveryState.userEventsDropped)
+        XCTAssertFalse(recorder.filesystemEventRecoveryState.kernelEventsDropped)
+        XCTAssertFalse(recorder.filesystemEventRecoveryState.rootChanged)
+        XCTAssertEqual(recorder.filesystemEventRecoveryState.evidenceCompleteness, .complete)
+        #endif
         stream.deliver([FSEventEvidence(eventID: 13, path: "/one/c", flags: 0, volume: "volume-A", ancestor: "/one")])
         let duplicateDeadline = ContinuousClock.now.advanced(by: .seconds(5))
         while recorder.filesystemEventRecoveryState.duplicatesSuppressed == 0, ContinuousClock.now < duplicateDeadline {
@@ -1993,6 +2000,9 @@ final class UICertificationTests: XCTestCase {
     }
 
     func testProductionStorageIncidentsViewRendersEightNonblankPNGStates() throws {
+        #if !os(macOS)
+        throw XCTSkip("Production SwiftUI rendering is certified by the macOS CI job.")
+        #endif
         let fileManager = FileManager.default
         let root = URL(fileURLWithPath: fileManager.currentDirectoryPath)
         let executableCandidates = [
@@ -2050,6 +2060,9 @@ final class UICertificationTests: XCTestCase {
     }
 
     func testCleanupCampaignViewRendersNonblankPNGAndAccessibilityContract() throws {
+        #if !os(macOS)
+        throw XCTSkip("Production SwiftUI rendering is certified by the macOS CI job.")
+        #endif
         let executable = try XCTUnwrap(configuredExecutable(), "The built DexCleaner executable was not found in a configured scratch path.")
         let output = FileManager.default.temporaryDirectory.appendingPathComponent("DexCleaner-Campaign-Certification-\(UUID().uuidString)", isDirectory: true)
         let process = Process()
