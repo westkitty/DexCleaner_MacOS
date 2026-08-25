@@ -107,6 +107,12 @@ final class AppModel: ObservableObject {
     @Published var lastVerifiedCapacityChangeBytes: Int64?
     @Published var launchAtLoginEnabled = false
     @Published var cleanupConfirmationRequested = false
+    @Published var currentScanID: UUID?
+    @Published var currentCampaignID: UUID?
+    @Published var campaignDomains: [CampaignDomainSummary] = []
+    @Published var campaignProgress: CampaignProgressSnapshot?
+    @Published var campaignStopRecommendation: StopRecommendation?
+    @Published var lastReceiptURL: URL?
     @Published private var capacityPresentationDate = Date()
     @Published var selectedHistoryRange: CapacityResolution = .day
     @Published var historyStatistics = CapacityRangeStatistics(records: [], start: Date(), end: Date(), validCount: 0, failedOrDisputedCount: 0, expectedCount: 0, coveragePercent: 0, longestGap: 0, containsGap: false, netChange: nil, minimum: nil, maximum: nil, average: nil)
@@ -411,6 +417,10 @@ final class AppModel: ObservableObject {
         cleanupResults = []
         lastTrashBytes = 0
         lastReportMode = .scan
+        currentCampaignID = nil
+        campaignDomains = []
+        campaignProgress = nil
+        campaignStopRecommendation = nil
         statusText = "Scanning read-only targets and audit areas..."
         phase = .scanning
         isWorking = true
@@ -433,6 +443,7 @@ final class AppModel: ObservableObject {
             }
 
             apply(snapshot: snapshot)
+            currentScanID = UUID()
             sampleCapacity(trigger: .quickScanCompletion, status: snapshot.diskStatus)
             switch snapshot.completeness {
             case .complete:
@@ -451,6 +462,43 @@ final class AppModel: ObservableObject {
                 phase = .idle
                 statusText = "No scan has run."
             }
+        }
+    }
+
+    func startCleanupCampaign() {
+        guard !isWorking, operationCoordinator.begin() else {
+            statusText = "Another operation is still finishing."
+            return
+        }
+        invalidatePreview()
+        cleanupResults = []
+        lastTrashBytes = 0
+        lastReportMode = .scan
+        let campaignID = UUID()
+        currentCampaignID = campaignID
+        currentScanID = nil
+        campaignDomains = []
+        campaignStopRecommendation = nil
+        campaignProgress = CampaignProgressSnapshot(phase: "Starting campaign audit", state: .running, candidatesConsidered: 0, filesExamined: 0, bytesExamined: 0, filesHashed: 0, bytesHashed: 0, partialResultCount: 0, startedAt: Date(), heartbeatAt: Date())
+        statusText = "Running the explicit evidence-driven campaign audit. No item starts selected."
+        phase = .scanning
+        isWorking = true
+        let roots = parsedExcludedRoots
+        let home = NSHomeDirectory()
+        activeTask = Task {
+            defer { isWorking = false; activeTask = nil; operationCoordinator.end() }
+            let worker = Task.detached(priority: .userInitiated) {
+                GuidedCleanupCampaign(home: home).run(campaignID: campaignID, excludedLargeFileRelativePaths: roots, isCancelled: { Task.isCancelled })
+            }
+            let result = await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() }
+            apply(snapshot: result.snapshot)
+            currentCampaignID = result.campaignID
+            currentScanID = result.scanID
+            campaignDomains = result.domains
+            campaignProgress = result.progress
+            campaignStopRecommendation = result.stopRecommendation
+            phase = result.snapshot.completeness == .cancelled ? .cancelled : .reviewing
+            statusText = result.stopRecommendation.shouldStop ? "Campaign audit complete. STOP is recommended unless you deliberately review remaining evidence." : "Campaign audit complete. Review exact evidence-backed findings; nothing is selected."
         }
     }
 
@@ -531,7 +579,7 @@ final class AppModel: ObservableObject {
             statusText = "No cleanup candidates are selected."
             return
         }
-        let outcome = runner.previewSelected(selected)
+        let outcome = runner.previewSelected(selected, sourceScanID: currentScanID, sourceScanAt: lastScanAt, campaignID: currentCampaignID)
         cleanupResults = outcome.results
         cleanupPlan = outcome.plan
         lastReportMode = .dryRun
@@ -577,13 +625,14 @@ final class AppModel: ObservableObject {
                 operationCoordinator.end()
             }
             let cleanupWorker = Task.detached(priority: .userInitiated) {
-                CleanupRunner(home: home).clean(plan: plan)
+                CleanupRunner(home: home).cleanWithReceipt(plan: plan, freeBytesBefore: capacityBefore)
             }
-            let results = await withTaskCancellationHandler {
+            let execution = await withTaskCancellationHandler {
                 await cleanupWorker.value
             } onCancel: {
                 cleanupWorker.cancel()
             }
+            let results = execution.results
             cleanupResults = results
             lastReportMode = .cleanup
             lastTrashBytes = results.filter { $0.status == "Moved to Trash" }.reduce(Int64(0)) { total, result in
@@ -619,20 +668,35 @@ final class AppModel: ObservableObject {
                 return
             }
             let roots = parsedExcludedRoots
-            let scanWorker = Task.detached(priority: .utility) {
-                DiskScanner(home: home, excludedLargeFileRelativePaths: roots).scan()
-            }
-            let snapshot = await withTaskCancellationHandler {
-                await scanWorker.value
-            } onCancel: {
-                scanWorker.cancel()
+            let snapshot: ScanSnapshot
+            if let campaignID = currentCampaignID {
+                let campaignWorker = Task.detached(priority: .utility) {
+                    GuidedCleanupCampaign(home: home).run(campaignID: campaignID, excludedLargeFileRelativePaths: roots, isCancelled: { Task.isCancelled })
+                }
+                let campaign = await withTaskCancellationHandler { await campaignWorker.value } onCancel: { campaignWorker.cancel() }
+                snapshot = campaign.snapshot
+                currentScanID = campaign.scanID
+                campaignDomains = campaign.domains
+                campaignProgress = campaign.progress
+                campaignStopRecommendation = campaign.stopRecommendation
+            } else {
+                let scanWorker = Task.detached(priority: .utility) { DiskScanner(home: home, excludedLargeFileRelativePaths: roots).scan() }
+                snapshot = await withTaskCancellationHandler { await scanWorker.value } onCancel: { scanWorker.cancel() }
             }
             apply(snapshot: snapshot, preserveResults: true)
+            if currentCampaignID == nil { currentScanID = UUID() }
             sampleCapacity(trigger: .cleanupCompletion, status: snapshot.diskStatus, force: true)
             if let capacityBefore, let capacityAfter = snapshot.diskStatus.availableForWorkBytes {
                 lastVerifiedCapacityChangeBytes = capacityAfter - capacityBefore
             } else {
                 lastVerifiedCapacityChangeBytes = nil
+            }
+            var receipt = execution.receipt
+            receipt.accounting.freeBytesAfter = snapshot.diskStatus.availableForWorkBytes
+            do {
+                lastReceiptURL = try ActionReceiptWriter.write(receipt, directory: reportDestinationDirectory ?? ReportWriter.defaultDirectory(home: home))
+            } catch {
+                reportStatusText = "Cleanup completed, but the action receipt could not be written: \(error.localizedDescription)"
             }
         }
     }
@@ -1122,7 +1186,10 @@ final class AppModel: ObservableObject {
             appVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Unknown",
             accessStatus: accessStatus,
             cleanupPlan: reportPlan(for: mode),
-            movedToTrashBytes: lastTrashBytes
+            movedToTrashBytes: lastTrashBytes,
+            scanID: currentScanID,
+            campaignID: currentCampaignID,
+            stopRecommendation: campaignStopRecommendation
         )
     }
 

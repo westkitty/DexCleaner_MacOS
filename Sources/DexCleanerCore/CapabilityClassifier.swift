@@ -25,6 +25,10 @@ public struct CapabilityFinding: Codable, Hashable, Sendable {
     public var reason: String
     public var active: Bool
     public var projectReferenced: Bool
+
+    public var scanItem: ScanItem {
+        ScanItem(path: path, displayName: ecosystem.rawValue, group: "Installed capabilities", category: disposition == .protected ? .protected : .auditOnly, risk: disposition == .protected ? .protected : .auditOnly, sizeBytes: FileIdentity.capture(path: path)?.sizeBytes ?? 0, explanation: reason, recoveryNote: "No cleanup authority is available for this capability classification.", action: .auditOnly, isSelected: false, measuredAt: Date(), measurementSource: .fresh)
+    }
 }
 
 public enum CapabilityClassifier {

@@ -196,6 +196,19 @@ public struct CampaignProgressSnapshot: Codable, Hashable, Sendable {
     public var partialResultCount: Int
     public var startedAt: Date
     public var heartbeatAt: Date
+
+    public init(phase: String, state: CampaignProgressState, candidatesConsidered: Int, filesExamined: Int, bytesExamined: Int64, filesHashed: Int, bytesHashed: Int64, partialResultCount: Int, startedAt: Date, heartbeatAt: Date) {
+        self.phase = phase
+        self.state = state
+        self.candidatesConsidered = candidatesConsidered
+        self.filesExamined = filesExamined
+        self.bytesExamined = bytesExamined
+        self.filesHashed = filesHashed
+        self.bytesHashed = bytesHashed
+        self.partialResultCount = partialResultCount
+        self.startedAt = startedAt
+        self.heartbeatAt = heartbeatAt
+    }
 }
 
 public struct StopRecommendation: Codable, Hashable, Sendable {

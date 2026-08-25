@@ -17,6 +17,7 @@ struct ContentView: View {
 
     enum PrimarySection: String, CaseIterable, Identifiable {
         case incidents = "Storage Incidents"
+        case campaign = "Cleanup Campaign"
         case review = "Review"
         case history = "Storage History"
         case drivers = "Storage Drivers"
@@ -74,6 +75,8 @@ struct ContentView: View {
                 .frame(maxWidth: 560)
                 if primarySection == .incidents {
                     StorageIncidentsView().environmentObject(model)
+                } else if primarySection == .campaign {
+                    CleanupCampaignView(reviewAction: { primarySection = .review; tab = .cleanable }).environmentObject(model)
                 } else if primarySection == .review {
                     reviewTabs
                 } else if primarySection == .history {

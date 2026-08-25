@@ -32,7 +32,7 @@ DexCleaner will not add generic permanent deletion, Trash emptying, process kill
 - [x] Phase 8: backup and rollback restorability engine
 - [x] Phase 9: physical-identity-aware exact duplicate analyzer
 - [x] Phase 10: extended read-only ecosystem, model-store, and toolchain classification
-- [ ] Phase 11: guided cleanup campaign orchestration and user interface
+- [x] Phase 11: guided cleanup campaign orchestration and user interface
 - [ ] Phase 12: adversarial hardening, documentation, release validation, and integration decision
 
 ## Phase gates
@@ -82,6 +82,14 @@ Exact duplicate analysis is bounded and cancellable, groups by size, collapses c
 Gradle/Android, Xcode, Kotlin/Native, Python, artificial-intelligence model, and toolchain classifications are read-only. Installed, active, default, project-referenced, and shared-blob capabilities remain protected or review-only; no new cleanup authority was granted.
 
 Eight focused adapter fixtures passed. The repository-wide `make bug-sweep` gate passed 131 tests with 0 failures and 3 intentionally gated skips, followed by all existing build and static safety checks.
+
+## Phase 11 evidence
+
+The macOS app now exposes an explicit Cleanup Campaign section without replacing the existing simple cleanup workflow. Starting a campaign performs the exact-manifest scan plus bounded project discovery and read-only installed-capability classification, records seven domain summaries, starts with no selection, and separates actionable, review, protected, and unknown findings in the existing Review interface.
+
+The campaign reuses the hardened exact selection, immutable Preview, confirmation sheet, final plan-wide preflight, immediate per-item revalidation, and Finder Trash implementation. Preview binds the source scan and campaign identifiers. Execution writes a versioned action receipt, re-runs the campaign audit, re-ranks findings, updates truthful capacity evidence, and publishes a transparent STOP recommendation. Backup and duplicate domains explicitly require user-selected scopes rather than silently traversing private data; unsupported Homebrew layouts remain unknown.
+
+The focused campaign suite passed 6 tests, including grouped/no-selection orchestration. The repository-wide `make bug-sweep` gate passed 132 tests with 0 failures and 3 intentionally gated skips, including macOS executable compilation and the existing eight-state production-view UI certification.
 
 ## Known platform boundary
 

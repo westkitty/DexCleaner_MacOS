@@ -102,4 +102,16 @@ final class CleanupCampaignTests: XCTestCase {
         large.action = .auditOnly
         XCTAssertEqual(CleanupCampaignEvaluator.reranked([large, small]).first?.path, small.path)
     }
+
+    func testGuidedCampaignIsExplicitGroupedAndStartsWithNoSelection() throws {
+        let home = try temporaryHome()
+        let campaignID = UUID()
+        let result = GuidedCleanupCampaign(home: home.path).run(campaignID: campaignID)
+        XCTAssertEqual(result.campaignID, campaignID)
+        XCTAssertEqual(Set(result.domains.map(\.domain)), Set(CampaignDomain.allCases))
+        XCTAssertTrue(result.snapshot.items.allSatisfy { !$0.isSelected })
+        XCTAssertEqual(result.progress.state, .completed)
+        XCTAssertEqual(result.stopRecommendation.actionableCount, result.snapshot.items.filter(\.isCleanable).count)
+        XCTAssertTrue(result.domains.first(where: { $0.domain == .duplicates })?.detail.contains("user-selected scope") == true)
+    }
 }
