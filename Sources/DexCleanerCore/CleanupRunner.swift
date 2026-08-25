@@ -48,7 +48,7 @@ public struct CleanupRunner {
         self.openFileChecker = openFileChecker
     }
 
-    public func previewSelected(_ items: [ScanItem]) -> PreviewOutcome {
+    public func previewSelected(_ items: [ScanItem], sourceScanID: UUID? = nil, sourceScanAt: Date? = nil, campaignID: UUID? = nil) -> PreviewOutcome {
         let selected = items.filter { $0.isSelected }
         guard !selected.isEmpty else {
             return PreviewOutcome(results: [CleanupResult(path: "selection://empty", status: "Blocked", detail: "No selected cleanup candidates.")], plan: nil)
@@ -94,6 +94,9 @@ public struct CleanupRunner {
             manifestVersion: CleanupCatalog.policyVersion,
             manifestChecksum: CleanupCatalog.manifestChecksum,
             selectionSignature: CleanupPlan.signature(for: selected),
+            sourceScanID: sourceScanID,
+            sourceScanAt: sourceScanAt,
+            campaignID: campaignID,
             items: planItems
         )
         return PreviewOutcome(results: results, plan: plan)
@@ -105,6 +108,7 @@ public struct CleanupRunner {
         }
         guard !currentTaskIsCancelled else { return failed(.cancelled, path: nil, "Cleanup was cancelled before final preflight.") }
         guard !plan.items.isEmpty else { return failed(.emptyPlan, path: nil, "Cleanup plan contains no targets.") }
+        guard CampaignFreshness.isCurrent(plan: plan, now: now) else { return failed(.expired, path: nil, "Source scan or cleanup plan is stale. Run a new scan and preview.") }
         let planAge = now.timeIntervalSince(plan.createdAt)
         guard planAge >= 0, planAge <= PreviewAuthorization.maximumPlanAge else { return failed(.expired, path: nil, "Cleanup plan expired. Run Preview again.") }
         let normalizedPaths = plan.items.map { SafetyEngine.lexicalNormalize($0.path) }
@@ -141,6 +145,19 @@ public struct CleanupRunner {
         }
         let typedDetail = "Final plan preflight blocked [\(failure.reason.rawValue)]: \(failure.detail)"
         return [CleanupResult(path: failure.path ?? "plan://\(plan.id.uuidString)", status: "Blocked", detail: typedDetail)]
+    }
+
+    public func cleanWithReceipt(plan: CleanupPlan, now: Date = Date(), freeBytesBefore: Int64? = nil, freeBytesAfter: Int64? = nil) -> CleanupExecutionResult {
+        let started = now
+        let finalPreflight = preflight(plan: plan, now: now)
+        let results: [CleanupResult]
+        if let failure = finalPreflight.failure {
+            results = [CleanupResult(path: failure.path ?? "plan://\(plan.id.uuidString)", status: "Blocked", detail: "Final plan preflight blocked [\(failure.reason.rawValue)]: \(failure.detail)")]
+        } else {
+            results = performClean(plan: plan)
+        }
+        let receipt = CleanupReceiptFactory.make(plan: plan, preflight: finalPreflight, results: results, startedAt: started, freeBytesBefore: freeBytesBefore, freeBytesAfter: freeBytesAfter)
+        return CleanupExecutionResult(results: results, receipt: receipt)
     }
 
     private func performClean(plan: CleanupPlan) -> [CleanupResult] {

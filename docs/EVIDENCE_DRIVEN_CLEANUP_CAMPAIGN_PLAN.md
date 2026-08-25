@@ -26,7 +26,7 @@ DexCleaner will not add generic permanent deletion, Trash emptying, process kill
 - [x] Phase 2: plan-wide preflight, typed stale reasons, exact open/active-owner blocking
 - [x] Phase 3: read-only project-artifact discovery with bounded traversal and cancellation
 - [x] Phase 4: narrowly proven Node `node_modules` and Rust `target` cleanup eligibility
-- [ ] Phase 5: action receipts, truthful accounting, progress, freshness, safe retry, re-rank, STOP logic
+- [x] Phase 5: action receipts, truthful accounting, progress, freshness, safe retry, re-rank, STOP logic
 - [ ] Phase 6: dedicated Homebrew staging adapter
 - [ ] Phase 7: managed system, FileProvider, and cloud protection adapter
 - [ ] Phase 8: backup and rollback restorability engine
@@ -60,6 +60,14 @@ Focused evidence/preflight fixtures passed 8 of 8. The repository-wide gate then
 The dedicated project adapter promotes only default Node `node_modules` and Rust `target` directories inside `~/Projects`, `~/Developer`, or `~/src`. Promotion requires a valid adjacent `package.json` or `Cargo.toml`, a containing Git repository, exact ignored and untracked state, complete measurement, physical identity, no symlink component, dedicated adapter provenance, immutable preview, whole-plan preflight, and immediate revalidation. Generic `build` and `dist` findings remain review-only; tracked findings are protected.
 
 Six focused fixtures cover Node, Rust, monorepo authority, tracked generic build output, missing workspace authority, symlink refusal, hidden-metadata pruning, incomplete measurement, cancellation, preview, and preflight. The repository-wide gate passed 118 tests with 0 failures and 3 intentionally gated skips.
+
+## Phase 5 evidence
+
+Versioned action receipts now distinguish attempted, completed, skipped, stale, blocked, and failed candidates while preserving completed and remaining work separately. New scan reports receive a scan identifier by default; campaign-linked plans and receipts preserve their source-scan and campaign identifiers. Retry decisions are derived from terminal candidate state so already-completed or idempotently absent targets are not retried.
+
+Reclaim accounting separates logical candidate bytes, allocated bytes, moved-to-Trash bytes, and observed free-space samples. Physical reclaim remains explicitly unknown unless both filesystem samples exist; moving an item to Finder Trash is never reported as freed space. Progress snapshots count candidate terminal states rather than estimating from bytes. STOP recommendations expose their inputs and rule version and can be recomputed from the same values.
+
+Five focused fixtures cover idempotent absence, partial completion, transparent STOP recomputation, campaign freshness/re-ranking, and versioned Codable progress/receipts. The repository-wide `make bug-sweep` gate passed 123 tests with 0 failures and 3 intentionally gated skips, followed by the build, parser, manifest, shell, cancellation, resource, and destructive-authority checks.
 
 ## Known platform boundary
 

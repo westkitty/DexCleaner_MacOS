@@ -21,6 +21,7 @@ DexCleaner is a conservative macOS disk-audit and exact-cache cleanup app. Clean
 - Phase 0 established the live repository and toolchain baseline in an isolated worktree; the original dirty recovery/audit checkout remains untouched.
 - Phases 1 and 2 add typed evidence/provenance, report schema `2.0.0`, evidence-bound preview plans, whole-plan preflight, and exact open-file blocking.
 - Phases 3 and 4 add bounded read-only project discovery and a dedicated adapter for proven ignored/untracked Node `node_modules` and Rust `target` directories under dedicated project roots.
+- Phase 5 adds versioned action receipts, scan/campaign identifiers, truthful reclaim accounting, terminal-state progress, safe retry selection, and reproducible STOP recommendations.
 - Generic `build`/`dist`, tracked artifacts, symlinks, incomplete measurements, missing workspace authority, and unavailable Git state remain non-actionable.
 
 ## Verified campaign baseline
@@ -30,6 +31,7 @@ DexCleaner is a conservative macOS disk-audit and exact-cache cleanup app. Clean
 - `origin/main` was `c1b68d424e72678e9ecdd34effb68496c2796f11`; the campaign baseline contains six additional committed changes already published on `codex/final-storage-forensics`.
 - After Phases 1 and 2, focused evidence/preflight fixtures passed 8 tests and `make bug-sweep` passed 112 tests with 0 failures and 3 explicitly gated skips.
 - After Phases 3 and 4, focused project fixtures passed 6 tests and `make bug-sweep` passed 118 tests with 0 failures and 3 explicitly gated skips.
+- After Phase 5, focused campaign/receipt fixtures passed 5 tests and `make bug-sweep` passed 123 tests with 0 failures and 3 explicitly gated skips.
 
 ## Implemented but still requires native verification
 - Post-change macOS semantic build and app launch.

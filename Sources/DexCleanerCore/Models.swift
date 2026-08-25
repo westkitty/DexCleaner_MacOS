@@ -255,6 +255,9 @@ public struct CleanupPlan: Identifiable, Hashable, Codable, Sendable {
     public let manifestChecksum: String
     public let selectionSignature: String
     public let evidenceSignature: String?
+    public let sourceScanID: UUID?
+    public let sourceScanAt: Date?
+    public let campaignID: UUID?
     public let items: [CleanupPlanItem]
 
     public init(
@@ -264,6 +267,9 @@ public struct CleanupPlan: Identifiable, Hashable, Codable, Sendable {
         manifestChecksum: String,
         selectionSignature: String? = nil,
         evidenceSignature: String? = nil,
+        sourceScanID: UUID? = nil,
+        sourceScanAt: Date? = nil,
+        campaignID: UUID? = nil,
         items: [CleanupPlanItem]
     ) {
         self.id = id
@@ -272,6 +278,9 @@ public struct CleanupPlan: Identifiable, Hashable, Codable, Sendable {
         self.manifestChecksum = manifestChecksum
         self.selectionSignature = selectionSignature ?? Self.signature(for: items)
         self.evidenceSignature = evidenceSignature ?? Self.evidenceSignature(for: items)
+        self.sourceScanID = sourceScanID
+        self.sourceScanAt = sourceScanAt
+        self.campaignID = campaignID
         self.items = items
     }
 
@@ -476,6 +485,9 @@ public struct ScanReport: Codable, Sendable {
     public var schemaVersion: String?
     public var evidenceBundles: [CandidateEvidenceBundle]?
     public var ruleProvenance: [RuleProvenance]?
+    public var scanID: UUID?
+    public var campaignID: UUID?
+    public var stopRecommendation: StopRecommendation?
 
     public init(
         mode: ReportMode = .scan,
@@ -497,7 +509,10 @@ public struct ScanReport: Codable, Sendable {
         movedToTrashBytes: Int64 = 0,
         schemaVersion: String? = ReportSchema.currentVersion,
         evidenceBundles: [CandidateEvidenceBundle]? = nil,
-        ruleProvenance: [RuleProvenance]? = nil
+        ruleProvenance: [RuleProvenance]? = nil,
+        scanID: UUID? = UUID(),
+        campaignID: UUID? = nil,
+        stopRecommendation: StopRecommendation? = nil
     ) {
         self.mode = mode
         self.timestamp = timestamp
@@ -521,5 +536,8 @@ public struct ScanReport: Codable, Sendable {
         self.evidenceBundles = evidenceBundles ?? (derivedEvidence.isEmpty ? nil : derivedEvidence)
         let derivedProvenance = self.evidenceBundles?.map(\.provenance)
         self.ruleProvenance = ruleProvenance ?? derivedProvenance.map { Array(Set($0)).sorted { $0.ruleID < $1.ruleID } }
+        self.scanID = scanID
+        self.campaignID = campaignID
+        self.stopRecommendation = stopRecommendation
     }
 }

@@ -54,6 +54,8 @@ public enum ReportWriter {
         text += "Generated: \(formatter.string(from: report.timestamp))\n\n"
         text += "## Authority and completeness\n\n"
         text += "- Report schema: \(report.schemaVersion ?? "legacy/unversioned")\n"
+        text += "- Scan ID: \(report.scanID?.uuidString ?? "legacy/unavailable")\n"
+        text += "- Campaign ID: \(report.campaignID?.uuidString ?? "not part of a campaign")\n"
         text += "- App version: \(report.appVersion)\n"
         text += "- Manifest schema: \(CleanupCatalog.schemaVersion)\n"
         text += "- Rule-set version: \(CleanupCatalog.rulesVersion)\n"
@@ -117,6 +119,13 @@ public enum ReportWriter {
             text += "\n"
         } else {
             text += "No candidate evidence bundles recorded. This report does not establish cleanup authority.\n\n"
+        }
+
+        if let stop = report.stopRecommendation {
+            text += "## STOP recommendation\n\n"
+            text += "- Recommend STOP: \(stop.shouldStop ? "yes" : "no")\n"
+            for reason in stop.reasons { text += "- \(reason)\n" }
+            text += "\n"
         }
 
         if !report.warnings.isEmpty {
