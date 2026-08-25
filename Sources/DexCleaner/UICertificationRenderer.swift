@@ -94,6 +94,35 @@ enum UICertificationRenderer {
         try manifestData.write(to: directory.appendingPathComponent("render-manifest.json"), options: .atomic)
     }
 
+    static func renderCampaign(to directory: URL) throws {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let model = AppModel(performStartupReconciliation: false, certificationMode: true)
+        model.currentCampaignID = UUID()
+        model.campaignProgress = CampaignProgressSnapshot(phase: "Campaign audit complete", state: .completed, candidatesConsidered: 12, filesExamined: 12, bytesExamined: 4_000_000_000, filesHashed: 0, bytesHashed: 0, partialResultCount: 3, startedAt: fixedDate, heartbeatAt: fixedDate)
+        model.campaignStopRecommendation = StopRecommendation(shouldStop: true, reasons: ["No evidence-proven actionable candidates remain.", "Remaining findings require review, are protected, or are unknown."], actionableCount: 0, reviewCount: 4, protectedCount: 5, unknownCount: 3)
+        model.campaignDomains = CampaignDomain.allCases.map { domain in
+            CampaignDomainSummary(domain: domain, completeness: [.homebrew, .backups, .duplicates].contains(domain) ? .partial : .complete, findingCount: domain == .capabilities ? 5 : 1, actionableCount: 0, detail: "Synthetic certification evidence for \(domain.rawValue); no cleanup authority is implied.")
+        }
+        let renderSize = NSSize(width: 1_000, height: 1_100)
+        let root = CleanupCampaignView(reviewAction: {})
+            .environmentObject(model)
+            .environment(\.locale, Locale(identifier: "en_US_POSIX"))
+            .environment(\.timeZone, TimeZone(secondsFromGMT: 0)!)
+            .environment(\.colorScheme, .light)
+            .frame(width: renderSize.width, height: renderSize.height, alignment: .topLeading)
+            .background(Color.white)
+        let hosting = NSHostingView(rootView: root)
+        hosting.frame = NSRect(origin: .zero, size: renderSize)
+        hosting.wantsLayer = true
+        hosting.layoutSubtreeIfNeeded()
+        guard let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(renderSize.width), pixelsHigh: Int(renderSize.height), bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0) else { throw CertificationError("No bitmap representation for campaign") }
+        hosting.cacheDisplay(in: hosting.bounds, to: bitmap)
+        guard let png = bitmap.representation(using: .png, properties: [:]), png.count > 10_000, meaningfulPixelBytes(in: bitmap) > 5_000 else { throw CertificationError("Blank or undersized campaign render") }
+        try png.write(to: directory.appendingPathComponent("cleanup-campaign.png"), options: .atomic)
+        let contract = "Evidence-driven cleanup campaign | STOP recommended | Review Findings | Re-audit Campaign | Exact selection and Preview remain required"
+        try Data(contract.utf8).write(to: directory.appendingPathComponent("cleanup-campaign.accessibility.txt"), options: .atomic)
+    }
+
     private static func fixtures() -> [Fixture] {
         [
             Fixture(name: "01-recorder-armed", configure: { model in

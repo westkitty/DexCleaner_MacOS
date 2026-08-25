@@ -16,6 +16,14 @@ public struct CampaignDomainSummary: Codable, Hashable, Sendable {
     public var findingCount: Int
     public var actionableCount: Int
     public var detail: String
+
+    public init(domain: CampaignDomain, completeness: ScanCompleteness, findingCount: Int, actionableCount: Int, detail: String) {
+        self.domain = domain
+        self.completeness = completeness
+        self.findingCount = findingCount
+        self.actionableCount = actionableCount
+        self.detail = detail
+    }
 }
 
 public struct GuidedCampaignResult: Sendable {

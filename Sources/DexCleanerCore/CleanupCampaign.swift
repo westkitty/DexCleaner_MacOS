@@ -218,6 +218,15 @@ public struct StopRecommendation: Codable, Hashable, Sendable {
     public var reviewCount: Int
     public var protectedCount: Int
     public var unknownCount: Int
+
+    public init(shouldStop: Bool, reasons: [String], actionableCount: Int, reviewCount: Int, protectedCount: Int, unknownCount: Int) {
+        self.shouldStop = shouldStop
+        self.reasons = reasons
+        self.actionableCount = actionableCount
+        self.reviewCount = reviewCount
+        self.protectedCount = protectedCount
+        self.unknownCount = unknownCount
+    }
 }
 
 public enum CleanupCampaignEvaluator {

@@ -1,4 +1,3 @@
-import CryptoKit
 import Foundation
 
 // These completion components produce diagnostic evidence only. None imports or
@@ -717,7 +716,7 @@ public enum LocalCloudComparator {
             }
             guard let left = dependencies.readResidentData(a.url), let right = dependencies.readResidentData(b.url) else { continue }
             hashBytes += Int64(left.count + right.count)
-            if SHA256.hash(data: left) == SHA256.hash(data: right) { hashMatches += 1 }
+            if left == right { hashMatches += 1 }
         }
         let onlyLocal = Set(localEntries.keys).subtracting(cloudEntries.keys)
         let onlyCloud = Set(cloudEntries.keys).subtracting(localEntries.keys)

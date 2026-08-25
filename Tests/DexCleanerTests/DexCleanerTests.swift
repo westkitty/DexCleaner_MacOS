@@ -1965,6 +1965,11 @@ final class IncidentCompatibilityTests: XCTestCase {
 }
 
 final class UICertificationTests: XCTestCase {
+    private func configuredExecutable() -> URL? {
+        let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        return [root.appendingPathComponent(".build-final/debug/DexCleaner"), root.appendingPathComponent(".build-final/arm64-apple-macosx/debug/DexCleaner"), root.appendingPathComponent(".build-1_3_1-release-gate/debug/DexCleaner"), root.appendingPathComponent(".build-1_3_1-release-gate/arm64-apple-macosx/debug/DexCleaner")].first { FileManager.default.isExecutableFile(atPath: $0.path) }
+    }
+
     func testProductionStorageIncidentsViewRendersEightNonblankPNGStates() throws {
         let fileManager = FileManager.default
         let root = URL(fileURLWithPath: fileManager.currentDirectoryPath)
@@ -2020,6 +2025,28 @@ final class UICertificationTests: XCTestCase {
             .filter { $0.pathExtension == "png" }
             .map { try Data(contentsOf: $0) }
         XCTAssertGreaterThan(Set(pngData).count, 5, "The deterministic production states must produce materially different renders.")
+    }
+
+    func testCleanupCampaignViewRendersNonblankPNGAndAccessibilityContract() throws {
+        let executable = try XCTUnwrap(configuredExecutable(), "The built DexCleaner executable was not found in a configured scratch path.")
+        let output = FileManager.default.temporaryDirectory.appendingPathComponent("DexCleaner-Campaign-Certification-\(UUID().uuidString)", isDirectory: true)
+        let process = Process()
+        process.executableURL = executable
+        var environment = ProcessInfo.processInfo.environment
+        environment["DEXCLEANER_CAMPAIGN_UI_CERTIFICATION_OUTPUT"] = output.path
+        process.environment = environment
+        let errorPipe = Pipe()
+        process.standardError = errorPipe
+        try process.run()
+        let finished = expectation(description: "Campaign renderer exits")
+        process.terminationHandler = { _ in finished.fulfill() }
+        wait(for: [finished], timeout: 120)
+        if process.isRunning { process.terminate() }
+        XCTAssertEqual(process.terminationStatus, 0, String(data: errorPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "")
+        let png = output.appendingPathComponent("cleanup-campaign.png")
+        XCTAssertGreaterThan((try Data(contentsOf: png)).count, 10_000)
+        let accessibility = try String(contentsOf: output.appendingPathComponent("cleanup-campaign.accessibility.txt"))
+        for text in ["Evidence-driven cleanup campaign", "STOP recommended", "Review Findings", "Re-audit Campaign", "Exact selection and Preview remain required"] { XCTAssertTrue(accessibility.contains(text)) }
     }
 }
 

@@ -5,6 +5,16 @@ import SwiftUI
 
 final class DexCleanerAppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
+        if let output = ProcessInfo.processInfo.environment["DEXCLEANER_CAMPAIGN_UI_CERTIFICATION_OUTPUT"] {
+            do {
+                try UICertificationRenderer.renderCampaign(to: URL(fileURLWithPath: output, isDirectory: true))
+                NSApp.terminate(nil)
+            } catch {
+                fputs("Campaign UI certification failed: \(error)\n", stderr)
+                NSApp.terminate(nil)
+            }
+            return
+        }
         if let output = ProcessInfo.processInfo.environment["DEXCLEANER_UI_CERTIFICATION_OUTPUT"] {
             do {
                 try UICertificationRenderer.renderAll(to: URL(fileURLWithPath: output, isDirectory: true))
@@ -34,7 +44,7 @@ struct DexCleanerApp: App {
     @Environment(\.openWindow) private var openWindow
 
     init() {
-        if ProcessInfo.processInfo.environment["DEXCLEANER_UI_CERTIFICATION_OUTPUT"] != nil {
+        if ProcessInfo.processInfo.environment["DEXCLEANER_UI_CERTIFICATION_OUTPUT"] != nil || ProcessInfo.processInfo.environment["DEXCLEANER_CAMPAIGN_UI_CERTIFICATION_OUTPUT"] != nil {
             _model = StateObject(wrappedValue: AppModel(performStartupReconciliation: false, certificationMode: true))
             return
         }
