@@ -1,4 +1,13 @@
 import Foundation
+#if canImport(Combine)
+import Combine
+#else
+public protocol ObservableObject: AnyObject {}
+@propertyWrapper public struct Published<Value> {
+    public var wrappedValue: Value
+    public init(wrappedValue: Value) { self.wrappedValue = wrappedValue }
+}
+#endif
 #if os(macOS)
 import CoreServices
 #endif
@@ -148,7 +157,10 @@ public enum FocusedAllocationMeasurer {
         let start = Date(); let fm = FileManager.default
         guard let attributes = try? fm.attributesOfItem(atPath: root.path) else { return PathMeasurement(path: root.path, classification: classification, complete: .unavailable, issue: "Path unavailable") }
         let rootFS = (attributes[.systemNumber] as? NSNumber)?.uint64Value
-        let keys: [URLResourceKey] = [.isRegularFileKey, .isDirectoryKey, .isSymbolicLinkKey, .fileSizeKey, .fileAllocatedSizeKey, .totalFileAllocatedSizeKey, .isSparseKey, .mayShareFileContentKey, .isUbiquitousItemKey, .volumeIdentifierKey, .creationDateKey, .contentModificationDateKey]
+        var keys: [URLResourceKey] = [.isRegularFileKey, .isDirectoryKey, .isSymbolicLinkKey, .fileSizeKey, .fileAllocatedSizeKey, .totalFileAllocatedSizeKey, .isUbiquitousItemKey, .volumeIdentifierKey, .creationDateKey, .contentModificationDateKey]
+#if os(macOS)
+        keys.append(contentsOf: [.isSparseKey, .mayShareFileContentKey])
+#endif
         guard let enumerator = fm.enumerator(at: root, includingPropertiesForKeys: keys, options: [.skipsPackageDescendants]) else { return PathMeasurement(path: root.path, classification: classification, complete: .unavailable, issue: "Cannot enumerate root") }
         var allocated: Int64 = 0, logical: Int64 = 0, placeholders: Int64 = 0, entries = 0, sparse = false, shared = false, partial = false
         while let url = enumerator.nextObject() as? URL {
@@ -164,7 +176,10 @@ public enum FocusedAllocationMeasurer {
             // This avoids the prior logical-size-as-local-size error without reading content.
             if values.isUbiquitousItem == true && fileAllocated == 0 && fileLogical > 0 { placeholders += fileLogical; continue }
             allocated += fileAllocated
-            sparse = sparse || values.isSparse == true; shared = shared || values.mayShareFileContent == true
+#if os(macOS)
+            sparse = sparse || values.isSparse == true
+            shared = shared || values.mayShareFileContent == true
+#endif
         }
         return PathMeasurement(path: root.path, classification: classification, allocatedBytes: allocated, logicalBytes: logical, sparse: sparse, mayShareContent: shared, placeholderBytes: placeholders, complete: partial ? .partial : .complete, issue: partial ? "Enumeration bound, cancellation, or inaccessible child limited the result." : nil)
     }

@@ -30,6 +30,8 @@ jobs:
       - name: Tests
         run: swift test --scratch-path .build-final
       - name: Build and verify app bundle
+        env:
+          DEXCLEANER_APP_OUTPUT: ${{ github.workspace }}/.build/DexCleaner.app
         run: |
           bash scripts/build_app_bundle.sh
           plutil -lint .build/DexCleaner.app/Contents/Info.plist

@@ -8,20 +8,27 @@ public enum StorageCapacityProvider {
 
     public static func measure(path: String = "/") -> DiskStatus {
         let url = URL(fileURLWithPath: path)
-        let keys: Set<URLResourceKey> = [
+        var keys: Set<URLResourceKey> = [
             .volumeNameKey,
             .volumeTotalCapacityKey,
-            .volumeAvailableCapacityKey,
-            .volumeAvailableCapacityForImportantUsageKey,
-            .volumeAvailableCapacityForOpportunisticUsageKey
+            .volumeAvailableCapacityKey
         ]
+#if os(macOS)
+        keys.insert(.volumeAvailableCapacityForImportantUsageKey)
+        keys.insert(.volumeAvailableCapacityForOpportunisticUsageKey)
+#endif
 
         do {
             let values = try url.resourceValues(forKeys: keys)
             let total = values.volumeTotalCapacity.map(Int64.init)
             let basicAvailable = values.volumeAvailableCapacity.map(Int64.init)
+#if os(macOS)
             let important = values.volumeAvailableCapacityForImportantUsage
             let opportunistic = values.volumeAvailableCapacityForOpportunisticUsage
+#else
+            let important = basicAvailable
+            let opportunistic: Int64? = nil
+#endif
             let filesystemAttributes = try? FileManager.default.attributesOfFileSystem(forPath: path)
             let filesystemFree = (filesystemAttributes?[.systemFreeSize] as? NSNumber)?.int64Value
             let immediate = filesystemFree ?? basicAvailable
@@ -39,7 +46,7 @@ public enum StorageCapacityProvider {
             let usedEstimate = max(0, total - important)
             let purgeable = max(0, important - (immediate ?? important))
             var state: StorageMeasurementState = immediate == nil || opportunistic == nil ? .partial : .fresh
-            var detail = "Available for work uses volumeAvailableCapacityForImportantUsage. Immediately free is reported separately."
+            var detail = "Available for work uses the strongest volume-capacity key available on this platform. Immediately free is reported separately."
 
             if let basicAvailable, let filesystemFree {
                 let tolerance = max(disagreementToleranceFloor, Int64(Double(total) * disagreementToleranceFraction))
