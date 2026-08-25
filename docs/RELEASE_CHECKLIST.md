@@ -4,22 +4,25 @@ A release is blocked until every required item is checked on actual macOS hardwa
 
 ## Automated gates
 
-- [ ] `make bug-sweep` passes
-- [ ] Linux CI passes
-- [ ] macOS CI passes
-- [ ] executable product compiles
-- [ ] app source parser check passes
-- [ ] manifest validation tests pass
-- [ ] cancellation tests pass
-- [ ] preview-plan expiry and duplicate-plan tests pass
-- [ ] manifest ID/path binding tests pass
-- [ ] mandatory exclusion tests pass
-- [ ] report free-text redaction and filename-collision tests pass
-- [ ] preview authorization tests pass
-- [ ] filesystem identity-change tests pass
-- [ ] report Markdown and JSON tests pass
-- [ ] source guard finds no permanent deletion
-- [ ] source guard finds no background scanning or launch-at-login implementation
+- [x] `make bug-sweep` passes
+- [x] Linux CI passes
+- [x] macOS CI passes
+- [x] executable product compiles
+- [x] app source parser check passes
+- [x] manifest validation tests pass
+- [x] cancellation tests pass
+- [x] preview-plan expiry and duplicate-plan tests pass
+- [x] manifest ID/path binding tests pass
+- [x] mandatory exclusion tests pass
+- [x] report free-text redaction and filename-collision tests pass
+- [x] preview authorization tests pass
+- [x] filesystem identity-change tests pass
+- [x] whole-plan preflight and evidence-tampering tests pass
+- [x] project, Homebrew, managed-resource, backup, and duplicate adapter fixtures pass
+- [x] report Markdown and JSON tests pass
+- [x] production UI render certifications pass on macOS
+- [x] source guard finds no permanent deletion
+- [x] source guard finds no background scanning or launch-at-login implementation
 
 ## Clean-account functional pass
 
@@ -74,11 +77,12 @@ A release is blocked until every required item is checked on actual macOS hardwa
 
 ## Packaging
 
-- [ ] `make app` succeeds
-- [ ] `make verify-app` succeeds
-- [ ] `plutil -lint` passes
-- [ ] SwiftPM resource bundle exists inside app Resources
-- [ ] `codesign --verify --deep --strict` passes
+- [ ] `make app` succeeds at the release destination
+- [ ] `make verify-app` succeeds at the release destination
+- [x] staged app-bundle construction succeeds
+- [x] `plutil -lint` passes
+- [x] SwiftPM resource bundle exists inside app Resources
+- [x] `codesign --verify --deep --strict` passes
 - [ ] signed identity is recorded
 - [ ] app launches outside the build directory
 - [ ] `make dmg` succeeds
@@ -99,3 +103,11 @@ Record:
 - macOS version and hardware used
 - CI run links
 - known residual risks
+
+Automated release record for the evidence-driven campaign:
+
+- code commit: `0eeb4c35a282577ab2d8671aaef21340e7ad3752`
+- CI: [DexCleaner CI run 32830483705](https://github.com/westkitty/DexCleaner_MacOS/actions/runs/32830483705)
+- result: Linux sweep/release tests and macOS build/tests/app verification passed
+- residual risk: the path-based Finder Trash time-of-check/time-of-use interval remains
+- human-only clean-account, accessibility, Trash restoration/cancellation, distribution signing, DMG, and Gatekeeper items above remain unchecked

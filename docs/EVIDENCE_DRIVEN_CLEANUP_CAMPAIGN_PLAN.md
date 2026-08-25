@@ -33,7 +33,7 @@ DexCleaner will not add generic permanent deletion, Trash emptying, process kill
 - [x] Phase 9: physical-identity-aware exact duplicate analyzer
 - [x] Phase 10: extended read-only ecosystem, model-store, and toolchain classification
 - [x] Phase 11: guided cleanup campaign orchestration and user interface
-- [ ] Phase 12: adversarial hardening, documentation, release validation, and integration decision
+- [x] Phase 12: adversarial hardening, documentation, release validation, and integration decision
 
 ## Phase gates
 
@@ -90,6 +90,16 @@ The macOS app now exposes an explicit Cleanup Campaign section without replacing
 The campaign reuses the hardened exact selection, immutable Preview, confirmation sheet, final plan-wide preflight, immediate per-item revalidation, and Finder Trash implementation. Preview binds the source scan and campaign identifiers. Execution writes a versioned action receipt, re-runs the campaign audit, re-ranks findings, updates truthful capacity evidence, and publishes a transparent STOP recommendation. Backup and duplicate domains explicitly require user-selected scopes rather than silently traversing private data; unsupported Homebrew layouts remain unknown.
 
 The focused campaign suite passed 6 tests, including grouped/no-selection orchestration. The repository-wide `make bug-sweep` gate passed 132 tests with 0 failures and 3 intentionally gated skips, including macOS executable compilation and the existing eight-state production-view UI certification.
+
+## Phase 12 evidence
+
+Adversarial hardening added evidence-tampering, stale-plan, open-after-preview, unavailable-detector, tracked-output, symlink, incomplete-measurement, managed-resource, active-owner, restorability, physical-identity, retry, accounting, and STOP fixtures. Platform-specific test boundaries now preserve FSEvents flag and production SwiftUI certification on macOS while retaining the portable recovery path on Linux.
+
+The final local gates passed on macOS 26.6.2: `make bug-sweep` executed 133 tests with 0 failures and 3 intentionally gated skips; release-mode tests and the release executable build passed; the staged app passed property-list validation, embedded resource verification, and `codesign --verify --deep --strict`.
+
+[DexCleaner CI run 32830483705](https://github.com/westkitty/DexCleaner_MacOS/actions/runs/32830483705) passed for `0eeb4c35a282577ab2d8671aaef21340e7ad3752`. The Linux job passed the deterministic sweep and release-mode tests. The macOS job passed the executable build, full tests including both production UI render certifications, and app-bundle verification.
+
+The code campaign is suitable for ordinary pull-request or fast-forward integration after the final documentation-only commit is green and remote `main` is confirmed unchanged. Public distribution remains blocked on the human-only clean-account, VoiceOver, real Finder Trash restoration/cancellation, distribution signing, DMG, and Gatekeeper checks in `docs/RELEASE_CHECKLIST.md`.
 
 ## Known platform boundary
 

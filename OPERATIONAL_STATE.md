@@ -4,7 +4,7 @@ Last updated: 2026-08-25
 Baseline: `codex/evidence-cleanup-campaign-20260825@27d352c4c7d24f9106498c0dbeb15de72077011e`
 
 ## Purpose
-DexCleaner is a conservative macOS disk-audit and exact-cache cleanup app. Cleanup authority comes only from the bundled validated manifest. The protected journey remains: explicit Scan -> visible Review -> immutable Preview -> exact confirmation -> revalidation -> Finder Trash.
+DexCleaner is a conservative macOS disk-audit and evidence-driven cleanup app. Cleanup authority comes only from the bundled validated manifest or a dedicated exact candidate-class adapter with complete typed proof. The protected journey remains: explicit Scan -> visible Review -> immutable Preview -> exact confirmation -> whole-plan and per-item revalidation -> Finder Trash.
 
 ## Protected invariants
 - No background scanning, launch-at-login, automatic launch scan, fallback manifest, broad cleaner behavior, Git cleanup, permanent deletion, or Trash emptying.
@@ -16,7 +16,7 @@ DexCleaner is a conservative macOS disk-audit and exact-cache cleanup app. Clean
 - Cancellation remains available and propagates to detached work.
 
 ## Current work state
-- The evidence-driven cleanup campaign is active on `codex/evidence-cleanup-campaign-20260825`.
+- The evidence-driven cleanup campaign is implementation-complete on `codex/evidence-cleanup-campaign-20260825`.
 - The durable phase ledger and safety contract are in `docs/EVIDENCE_DRIVEN_CLEANUP_CAMPAIGN_PLAN.md`.
 - Phase 0 established the live repository and toolchain baseline in an isolated worktree; the original dirty recovery/audit checkout remains untouched.
 - Phases 1 and 2 add typed evidence/provenance, report schema `2.0.0`, evidence-bound preview plans, whole-plan preflight, and exact open-file blocking.
@@ -24,6 +24,7 @@ DexCleaner is a conservative macOS disk-audit and exact-cache cleanup app. Clean
 - Phase 5 adds versioned action receipts, scan/campaign identifiers, truthful reclaim accounting, terminal-state progress, safe retry selection, and reproducible STOP recommendations.
 - Phases 6 through 10 add exact Homebrew staging proof, managed-resource refusal, backup restorability validation, hardlink-aware exact duplicate review, and protected/read-only capability classification.
 - Phase 11 adds an explicit guided campaign UI that binds scan/campaign identity through Preview, writes a receipt, re-audits/re-ranks, and exposes domain coverage plus STOP reasoning while reusing the existing confirmation and Finder Trash path.
+- Phase 12 completed adversarial hardening, cross-platform continuous-integration portability, production UI certification, release-mode validation, app-bundle verification, and current documentation.
 - Generic `build`/`dist`, tracked artifacts, symlinks, incomplete measurements, missing workspace authority, and unavailable Git state remain non-actionable.
 
 ## Verified campaign baseline
@@ -36,13 +37,14 @@ DexCleaner is a conservative macOS disk-audit and exact-cache cleanup app. Clean
 - After Phase 5, focused campaign/receipt fixtures passed 5 tests and `make bug-sweep` passed 123 tests with 0 failures and 3 explicitly gated skips.
 - After Phases 6 through 10, focused adapter fixtures passed 8 tests and `make bug-sweep` passed 131 tests with 0 failures and 3 explicitly gated skips.
 - After Phase 11, focused campaign fixtures passed 6 tests and `make bug-sweep` passed 132 tests with 0 failures and 3 explicitly gated skips.
+- Final local `make bug-sweep` passed 133 tests with 0 failures and 3 explicitly gated skips. Release-mode tests/build, staged app property-list/resource checks, and strict code-sign verification passed.
+- [CI run 32830483705](https://github.com/westkitty/DexCleaner_MacOS/actions/runs/32830483705) passed for `0eeb4c35a282577ab2d8671aaef21340e7ad3752`: Linux deterministic sweep and release tests; macOS executable build, tests, two production UI render certifications, and app-bundle verification.
 
-## Implemented but still requires native verification
-- Post-change macOS semantic build and app launch.
+## Human-only verification still required before public distribution
 - Narrow/wide layout, enlarged text, Reduce Motion, keyboard-only navigation, and VoiceOver.
 - Finder Trash movement/restoration/cancellation on real macOS.
-- Signing, Gatekeeper, and DMG install/launch.
+- Distribution signing, Gatekeeper, and DMG install/launch.
 - The pre-existing residual path-to-Trash race remains a platform boundary.
 
 ## Git delivery rule
-Commit and push each validated phase to `codex/evidence-cleanup-campaign-20260825` with explicit staging. Do not force push, rewrite history, reset/clean, or mutate unrelated recovery/audit material. Integrate only after the complete campaign is green and the final branch-base diff is reviewed; use the repository's ordinary pull-request or fast-forward path.
+Commit and push the final documentation with explicit staging. Do not force push, rewrite history, reset/clean, or mutate unrelated recovery/audit material. Integrate only after the documentation commit is green, remote `main` is unchanged, and the final branch-base diff is reviewed; use the repository's ordinary pull-request or fast-forward path.
