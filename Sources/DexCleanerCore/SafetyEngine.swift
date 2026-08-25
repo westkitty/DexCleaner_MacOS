@@ -75,6 +75,16 @@ public enum SafetyEngine {
         )
         let base = decision(for: item, home: home)
         guard base.allowed else { return base }
+        guard let evidence = planItem.evidence else {
+            return SafetyDecision(allowed: false, reason: "Previewed target has no evidence bundle. Run a new scan and preview.")
+        }
+        guard evidence.isActionable,
+              evidence.candidateID == planItem.manifestID,
+              lexicalNormalize(evidence.path) == lexicalNormalize(planItem.path),
+              evidence.identity == planItem.identity,
+              evidence.provenance == CleanupCatalog.provenance(for: entry) else {
+            return SafetyDecision(allowed: false, reason: "Previewed target evidence is incomplete, stale, or does not match current rule provenance.")
+        }
         guard let current = FileIdentity.capture(path: planItem.path), current == planItem.identity else {
             return SafetyDecision(allowed: false, reason: "Target identity changed after preview. Run a new scan and preview.")
         }

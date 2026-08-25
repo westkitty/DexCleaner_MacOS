@@ -29,6 +29,8 @@ public struct PreviewAuthorization: Hashable, Sendable {
         return currentSignature == selectionSignature
             && currentSignature == plan.selectionSignature
             && plan.selectionSignature == CleanupPlan.signature(for: plan.items)
+            && plan.evidenceSignature != nil
+            && plan.evidenceSignature == CleanupPlan.evidenceSignature(for: plan.items)
     }
 
     public static func signature(for items: [ScanItem]) -> String {

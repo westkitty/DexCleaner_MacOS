@@ -53,7 +53,10 @@ public enum ReportWriter {
         var text = "# DexCleaner \(reportLabel(for: report)) Report\n\n"
         text += "Generated: \(formatter.string(from: report.timestamp))\n\n"
         text += "## Authority and completeness\n\n"
+        text += "- Report schema: \(report.schemaVersion ?? "legacy/unversioned")\n"
         text += "- App version: \(report.appVersion)\n"
+        text += "- Manifest schema: \(CleanupCatalog.schemaVersion)\n"
+        text += "- Rule-set version: \(CleanupCatalog.rulesVersion)\n"
         text += "- Manifest version: \(report.policyVersion)\n"
         text += "- Manifest checksum: \(report.manifestChecksum)\n"
         text += "- Report mode: \(reportLabel(for: report))\n"
@@ -96,13 +99,24 @@ public enum ReportWriter {
             text += "- Manifest version: \(plan.manifestVersion)\n"
             text += "- Manifest checksum: \(plan.manifestChecksum)\n"
             text += "- Selection signature: \(plan.selectionSignature)\n"
+            text += "- Evidence signature: \(plan.evidenceSignature ?? "missing")\n"
             text += "- Expires: \(formatter.string(from: plan.expiresAt))\n"
             text += "- Planned items: \(plan.items.count)\n"
             text += "- Planned bytes: \(ByteCountFormatter.string(fromByteCount: plan.totalBytes, countStyle: .file))\n\n"
             for item in plan.items {
-                text += "- \(item.displayName): `\(escapeBackticks(item.path))` — \(item.safetyReason)\n"
+                text += "- \(item.displayName): `\(escapeBackticks(item.path))` — \(item.safetyReason); evidence \(item.evidence?.fingerprint ?? "missing")\n"
             }
             text += "\n"
+        }
+
+        text += "## Candidate evidence and rule provenance\n\n"
+        if let bundles = report.evidenceBundles, !bundles.isEmpty {
+            for bundle in bundles {
+                text += "- `\(escapeBackticks(bundle.path))`: \(bundle.protection.rawValue), \(bundle.rebuildability.rawValue), \(bundle.ownership.rawValue); rule \(bundle.provenance.ruleID)@\(bundle.provenance.ruleVersion); fingerprint \(bundle.fingerprint)\n"
+            }
+            text += "\n"
+        } else {
+            text += "No candidate evidence bundles recorded. This report does not establish cleanup authority.\n\n"
         }
 
         if !report.warnings.isEmpty {
@@ -166,6 +180,7 @@ public enum ReportWriter {
             value.displayName = redactText(item.displayName)
             value.explanation = redactText(item.explanation)
             value.recoveryNote = redactText(item.recoveryNote)
+            value.evidence = item.evidence?.redactedCopy(home: home)
             return value
         }
         copy.results = copy.results.map { result in
@@ -207,7 +222,8 @@ public enum ReportWriter {
                     identity: item.identity,
                     safetyReason: redactText(item.safetyReason),
                     risk: item.risk,
-                    action: item.action
+                    action: item.action,
+                    evidence: item.evidence?.redactedCopy(home: home)
                 )
             }
             copy.cleanupPlan = CleanupPlan(
@@ -216,9 +232,11 @@ public enum ReportWriter {
                 manifestVersion: plan.manifestVersion,
                 manifestChecksum: plan.manifestChecksum,
                 selectionSignature: "redacted",
+                evidenceSignature: plan.evidenceSignature,
                 items: items
             )
         }
+        copy.evidenceBundles = copy.evidenceBundles?.map { $0.redactedCopy(home: home) }
         return copy
     }
 

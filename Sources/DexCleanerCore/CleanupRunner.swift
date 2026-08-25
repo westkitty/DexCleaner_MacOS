@@ -1,10 +1,51 @@
 import Foundation
 
+public enum PlanPreflightFailureReason: String, Codable, Hashable, Sendable {
+    case emptyPlan = "Empty plan"
+    case expired = "Expired plan"
+    case duplicatePath = "Duplicate path"
+    case invalidSelectionSignature = "Invalid selection signature"
+    case invalidEvidenceSignature = "Invalid evidence signature"
+    case manifestChanged = "Manifest changed"
+    case candidateChanged = "Candidate changed"
+    case candidateOpen = "Candidate open"
+    case detectorUnavailable = "Open-file detector unavailable"
+    case cancelled = "Cancelled"
+}
+
+public struct PlanPreflightFailure: Codable, Hashable, Sendable {
+    public var reason: PlanPreflightFailureReason
+    public var path: String?
+    public var detail: String
+
+    public init(reason: PlanPreflightFailureReason, path: String? = nil, detail: String) {
+        self.reason = reason
+        self.path = path
+        self.detail = detail
+    }
+}
+
+public struct PlanPreflightResult: Codable, Hashable, Sendable {
+    public var checkedAt: Date
+    public var checkedItemCount: Int
+    public var failure: PlanPreflightFailure?
+
+    public init(checkedAt: Date, checkedItemCount: Int, failure: PlanPreflightFailure? = nil) {
+        self.checkedAt = checkedAt
+        self.checkedItemCount = checkedItemCount
+        self.failure = failure
+    }
+
+    public var allowed: Bool { failure == nil }
+}
+
 public struct CleanupRunner {
     public let home: String
+    public let openFileChecker: ExactOpenFileChecker
 
-    public init(home: String = NSHomeDirectory()) {
+    public init(home: String = NSHomeDirectory(), openFileChecker: ExactOpenFileChecker = .production) {
         self.home = home
+        self.openFileChecker = openFileChecker
     }
 
     public func previewSelected(_ items: [ScanItem]) -> PreviewOutcome {
@@ -28,6 +69,10 @@ public struct CleanupRunner {
                 results.append(CleanupResult(path: item.path, status: "Blocked", detail: "Manifest identity or filesystem identity is unavailable."))
                 continue
             }
+            guard let evidence = CandidateEvidenceFactory.exactManifest(item: item, identity: identity, home: home), evidence.isActionable else {
+                results.append(CleanupResult(path: item.path, status: "Blocked", detail: "Complete cleanup evidence could not be established."))
+                continue
+            }
             planItems.append(CleanupPlanItem(
                 scanItemID: item.id,
                 manifestID: manifestID,
@@ -37,7 +82,8 @@ public struct CleanupRunner {
                 identity: identity,
                 safetyReason: decision.reason,
                 risk: item.risk,
-                action: item.action
+                action: item.action,
+                evidence: evidence
             ))
             let processNote = item.owningProcessRunning ? " The owning application appears to be running; close it before cleanup when practical." : ""
             results.append(CleanupResult(path: item.path, status: "Authorized for confirmation", detail: decision.reason + processNote))
@@ -53,25 +99,51 @@ public struct CleanupRunner {
         return PreviewOutcome(results: results, plan: plan)
     }
 
-    public func clean(plan: CleanupPlan, now: Date = Date()) -> [CleanupResult] {
-        guard !plan.items.isEmpty else {
-            return [CleanupResult(path: "plan://\(plan.id.uuidString)", status: "Blocked", detail: "Cleanup plan contains no targets.")]
+    public func preflight(plan: CleanupPlan, now: Date = Date()) -> PlanPreflightResult {
+        func failed(_ reason: PlanPreflightFailureReason, path: String? = nil, _ detail: String, checked: Int = 0) -> PlanPreflightResult {
+            PlanPreflightResult(checkedAt: now, checkedItemCount: checked, failure: PlanPreflightFailure(reason: reason, path: path, detail: detail))
         }
+        guard !currentTaskIsCancelled else { return failed(.cancelled, path: nil, "Cleanup was cancelled before final preflight.") }
+        guard !plan.items.isEmpty else { return failed(.emptyPlan, path: nil, "Cleanup plan contains no targets.") }
         let planAge = now.timeIntervalSince(plan.createdAt)
-        guard planAge >= 0, planAge <= PreviewAuthorization.maximumPlanAge else {
-            return [CleanupResult(path: "plan://\(plan.id.uuidString)", status: "Blocked", detail: "Cleanup plan expired. Run Preview again.")]
-        }
+        guard planAge >= 0, planAge <= PreviewAuthorization.maximumPlanAge else { return failed(.expired, path: nil, "Cleanup plan expired. Run Preview again.") }
         let normalizedPaths = plan.items.map { SafetyEngine.lexicalNormalize($0.path) }
-        guard Set(normalizedPaths).count == normalizedPaths.count else {
-            return [CleanupResult(path: "plan://\(plan.id.uuidString)", status: "Blocked", detail: "Cleanup plan contains duplicate target paths.")]
-        }
-        guard plan.selectionSignature == CleanupPlan.signature(for: plan.items) else {
-            return [CleanupResult(path: "plan://\(plan.id.uuidString)", status: "Blocked", detail: "Cleanup plan selection signature is invalid.")]
+        guard Set(normalizedPaths).count == normalizedPaths.count else { return failed(.duplicatePath, path: nil, "Cleanup plan contains duplicate target paths.") }
+        guard plan.selectionSignature == CleanupPlan.signature(for: plan.items) else { return failed(.invalidSelectionSignature, path: nil, "Cleanup plan selection signature is invalid.") }
+        guard plan.evidenceSignature != nil,
+              plan.evidenceSignature == CleanupPlan.evidenceSignature(for: plan.items) else {
+            return failed(.invalidEvidenceSignature, path: nil, "Cleanup plan evidence signature is missing or invalid.")
         }
         guard plan.manifestVersion == CleanupCatalog.policyVersion,
               plan.manifestChecksum == CleanupCatalog.manifestChecksum else {
-            return [CleanupResult(path: "plan://\(plan.id.uuidString)", status: "Blocked", detail: "Cleanup manifest changed after preview. Run a new scan and preview.")]
+            return failed(.manifestChanged, path: nil, "Cleanup manifest changed after preview. Run a new scan and preview.")
         }
+        for (index, item) in plan.items.enumerated() {
+            guard !currentTaskIsCancelled else { return failed(.cancelled, path: item.path, "Cleanup was cancelled during final preflight.", checked: index) }
+            let decision = SafetyEngine.decision(for: item, home: home)
+            guard decision.allowed else { return failed(.candidateChanged, path: item.path, decision.reason, checked: index + 1) }
+            switch openFileChecker.state(for: item.path) {
+            case .closed:
+                continue
+            case let .inUse(owners):
+                return failed(.candidateOpen, path: item.path, "Candidate is open by: \(owners.joined(separator: ", ")). Close the owner and run a new preview.", checked: index + 1)
+            case let .unavailable(detail):
+                return failed(.detectorUnavailable, path: item.path, detail, checked: index + 1)
+            }
+        }
+        return PlanPreflightResult(checkedAt: now, checkedItemCount: plan.items.count)
+    }
+
+    public func clean(plan: CleanupPlan, now: Date = Date()) -> [CleanupResult] {
+        let finalPreflight = preflight(plan: plan, now: now)
+        guard let failure = finalPreflight.failure else {
+            return performClean(plan: plan)
+        }
+        let typedDetail = "Final plan preflight blocked [\(failure.reason.rawValue)]: \(failure.detail)"
+        return [CleanupResult(path: failure.path ?? "plan://\(plan.id.uuidString)", status: "Blocked", detail: typedDetail)]
+    }
+
+    private func performClean(plan: CleanupPlan) -> [CleanupResult] {
         let cache = ScanCache(home: home)
         var results: [CleanupResult] = []
         for item in plan.items {
@@ -82,7 +154,19 @@ public struct CleanupRunner {
             let decision = SafetyEngine.decision(for: item, home: home)
             guard decision.allowed else {
                 results.append(CleanupResult(path: item.path, status: "Blocked", detail: decision.reason))
-                continue
+                break
+            }
+            switch openFileChecker.state(for: item.path) {
+            case .closed:
+                break
+            case let .inUse(owners):
+                results.append(CleanupResult(path: item.path, status: "Blocked", detail: "Candidate became open after plan preflight: \(owners.joined(separator: ", "))."))
+                cache.save()
+                return results
+            case let .unavailable(detail):
+                results.append(CleanupResult(path: item.path, status: "Blocked", detail: "Exact open-file revalidation became unavailable: \(detail)"))
+                cache.save()
+                return results
             }
             #if os(macOS)
             do {

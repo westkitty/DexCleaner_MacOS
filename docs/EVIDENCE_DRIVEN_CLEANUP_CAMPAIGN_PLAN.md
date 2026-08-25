@@ -22,8 +22,8 @@ DexCleaner will not add generic permanent deletion, Trash emptying, process kill
 ## Phase ledger
 
 - [x] Phase 0: preflight, baseline, isolated worktree/branch, durable plan, operational-state correction
-- [ ] Phase 1: evidence core, rule provenance, versioned JSON/Markdown reporting
-- [ ] Phase 2: plan-wide preflight, typed stale reasons, exact open/active-owner blocking
+- [x] Phase 1: evidence core, rule provenance, versioned JSON/Markdown reporting
+- [x] Phase 2: plan-wide preflight, typed stale reasons, exact open/active-owner blocking
 - [ ] Phase 3: read-only project-artifact discovery with bounded traversal and cancellation
 - [ ] Phase 4: narrowly proven Node `node_modules` and Rust `target` cleanup eligibility
 - [ ] Phase 5: action receipts, truthful accounting, progress, freshness, safe retry, re-rank, STOP logic
@@ -44,6 +44,14 @@ Commits and pushes use explicit file staging. Project Sentinel generated evidenc
 ## Baseline evidence
 
 On macOS 26.6.2 with the Apple Swift 6.2 toolchain, `make bug-sweep` passed from the isolated campaign worktree on 2026-08-25. Swift Package Manager executed 104 tests with 0 failures and 3 intentionally gated skips. The user-interface contract, debug build, package description, Swift parser, manifest parser, shell syntax, cancellation wiring, resource packaging, and permanent-deletion/background-scan guards all passed.
+
+## Phase 1-2 evidence
+
+The evidence core now records typed ownership, protection, rebuildability, risk, filesystem identity, evidence records, rule source, rule version, and manifest checksum. A deterministic fingerprint binds those fields, and preview plans bind the complete evidence set with a separate evidence signature. JSON reports use schema `2.0.0`; the bundled manifest and rule set use schema/version `1.0.0`. Markdown and JSON are generated from the same `ScanReport`, and home-relative redaction covers evidence paths and details.
+
+Cleanup now runs a typed whole-plan preflight before the first mutation. It validates plan age, unique canonical paths, selection and evidence signatures, manifest state, every candidate identity/evidence bundle, and an exact path/subtree open-file check. Detector failure is a blocking unknown. Immediate identity and open-file revalidation remains directly before each Finder Trash call.
+
+Focused evidence/preflight fixtures passed 8 of 8. The repository-wide gate then passed 112 tests with 0 failures and 3 intentionally gated skips. The stale-fourth-item fixture proves the first item is not moved; open-after-preview and detector-unavailable fixtures fail closed.
 
 ## Known platform boundary
 

@@ -125,6 +125,8 @@ public struct DiskScanner {
             item.action = .auditOnly
             item.explanation += " Cleanup blocked: \(decision.reason)"
             item.recoveryNote = "No cleanup action is available until the authority problem is corrected."
+        } else if let identity = FileIdentity.capture(path: item.path) {
+            item.evidence = CandidateEvidenceFactory.exactManifest(item: item, identity: identity, home: home, observedAt: measurement.date)
         }
         return item
     }

@@ -1,4 +1,6 @@
 {
+  "schemaVersion": "1.0.0",
+  "rulesVersion": "1.0.0",
   "version": "1.0.0",
   "name": "DexCleaner cleanup authority manifest",
   "policy": "Exact canonical allowlist only. Every entry is safe, regeneratable, initially unselected, preview-required, and moved through Finder Trash only.",

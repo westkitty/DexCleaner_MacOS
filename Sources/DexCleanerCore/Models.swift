@@ -88,6 +88,7 @@ public struct ScanItem: Identifiable, Hashable, Codable, Sendable {
     public var measuredAt: Date?
     public var measurementSource: MeasurementSource
     public var owningProcessRunning: Bool
+    public var evidence: CandidateEvidenceBundle?
 
     public init(
         id: UUID = UUID(),
@@ -104,7 +105,8 @@ public struct ScanItem: Identifiable, Hashable, Codable, Sendable {
         isSelected: Bool,
         measuredAt: Date? = nil,
         measurementSource: MeasurementSource = .notMeasured,
-        owningProcessRunning: Bool = false
+        owningProcessRunning: Bool = false,
+        evidence: CandidateEvidenceBundle? = nil
     ) {
         self.id = id
         self.manifestID = manifestID
@@ -121,6 +123,7 @@ public struct ScanItem: Identifiable, Hashable, Codable, Sendable {
         self.measuredAt = measuredAt
         self.measurementSource = measurementSource
         self.owningProcessRunning = owningProcessRunning
+        self.evidence = evidence
     }
 
     public var formattedSize: String {
@@ -216,6 +219,7 @@ public struct CleanupPlanItem: Identifiable, Hashable, Codable, Sendable {
     public let safetyReason: String
     public let risk: RiskLevel
     public let action: CleanupAction
+    public let evidence: CandidateEvidenceBundle?
 
     public init(
         id: UUID = UUID(),
@@ -227,7 +231,8 @@ public struct CleanupPlanItem: Identifiable, Hashable, Codable, Sendable {
         identity: FileIdentity,
         safetyReason: String,
         risk: RiskLevel = .safe,
-        action: CleanupAction = .moveToTrash
+        action: CleanupAction = .moveToTrash,
+        evidence: CandidateEvidenceBundle? = nil
     ) {
         self.id = id
         self.scanItemID = scanItemID
@@ -239,6 +244,7 @@ public struct CleanupPlanItem: Identifiable, Hashable, Codable, Sendable {
         self.safetyReason = safetyReason
         self.risk = risk
         self.action = action
+        self.evidence = evidence
     }
 }
 
@@ -248,6 +254,7 @@ public struct CleanupPlan: Identifiable, Hashable, Codable, Sendable {
     public let manifestVersion: String
     public let manifestChecksum: String
     public let selectionSignature: String
+    public let evidenceSignature: String?
     public let items: [CleanupPlanItem]
 
     public init(
@@ -256,6 +263,7 @@ public struct CleanupPlan: Identifiable, Hashable, Codable, Sendable {
         manifestVersion: String,
         manifestChecksum: String,
         selectionSignature: String? = nil,
+        evidenceSignature: String? = nil,
         items: [CleanupPlanItem]
     ) {
         self.id = id
@@ -263,6 +271,7 @@ public struct CleanupPlan: Identifiable, Hashable, Codable, Sendable {
         self.manifestVersion = manifestVersion
         self.manifestChecksum = manifestChecksum
         self.selectionSignature = selectionSignature ?? Self.signature(for: items)
+        self.evidenceSignature = evidenceSignature ?? Self.evidenceSignature(for: items)
         self.items = items
     }
 
@@ -297,6 +306,12 @@ public struct CleanupPlan: Identifiable, Hashable, Codable, Sendable {
         }
         .sorted()
         .joined(separator: "\n")
+    }
+
+    public static func evidenceSignature(for items: [CleanupPlanItem]) -> String? {
+        let fingerprints = items.compactMap { $0.evidence?.fingerprint }.sorted()
+        guard fingerprints.count == items.count, !fingerprints.isEmpty else { return nil }
+        return StableFingerprint.fnv1a(fingerprints.joined(separator: "\n"))
     }
 }
 
@@ -458,6 +473,9 @@ public struct ScanReport: Codable, Sendable {
     public var accessStatus: String
     public var cleanupPlan: CleanupPlan?
     public var movedToTrashBytes: Int64
+    public var schemaVersion: String?
+    public var evidenceBundles: [CandidateEvidenceBundle]?
+    public var ruleProvenance: [RuleProvenance]?
 
     public init(
         mode: ReportMode = .scan,
@@ -476,7 +494,10 @@ public struct ScanReport: Codable, Sendable {
         appVersion: String,
         accessStatus: String,
         cleanupPlan: CleanupPlan? = nil,
-        movedToTrashBytes: Int64 = 0
+        movedToTrashBytes: Int64 = 0,
+        schemaVersion: String? = ReportSchema.currentVersion,
+        evidenceBundles: [CandidateEvidenceBundle]? = nil,
+        ruleProvenance: [RuleProvenance]? = nil
     ) {
         self.mode = mode
         self.timestamp = timestamp
@@ -495,5 +516,10 @@ public struct ScanReport: Codable, Sendable {
         self.accessStatus = accessStatus
         self.cleanupPlan = cleanupPlan
         self.movedToTrashBytes = movedToTrashBytes
+        self.schemaVersion = schemaVersion
+        let derivedEvidence = items.compactMap(\.evidence) + (cleanupPlan?.items.compactMap(\.evidence) ?? [])
+        self.evidenceBundles = evidenceBundles ?? (derivedEvidence.isEmpty ? nil : derivedEvidence)
+        let derivedProvenance = self.evidenceBundles?.map(\.provenance)
+        self.ruleProvenance = ruleProvenance ?? derivedProvenance.map { Array(Set($0)).sorted { $0.ruleID < $1.ruleID } }
     }
 }

@@ -37,18 +37,37 @@ public struct CatalogEntry: Hashable, Codable, Sendable {
 }
 
 public struct CleanupManifest: Codable, Sendable {
+    public var schemaVersion: String
+    public var rulesVersion: String
     public var version: String
     public var name: String
     public var policy: String
     public var safeExactTargets: [CatalogEntry]
     public var forbiddenFragments: [String]
 
-    public init(version: String, name: String, policy: String, safeExactTargets: [CatalogEntry], forbiddenFragments: [String]) {
+    public init(schemaVersion: String = "1.0.0", rulesVersion: String = "1.0.0", version: String, name: String, policy: String, safeExactTargets: [CatalogEntry], forbiddenFragments: [String]) {
+        self.schemaVersion = schemaVersion
+        self.rulesVersion = rulesVersion
         self.version = version
         self.name = name
         self.policy = policy
         self.safeExactTargets = safeExactTargets
         self.forbiddenFragments = forbiddenFragments
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion, rulesVersion, version, name, policy, safeExactTargets, forbiddenFragments
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = try values.decodeIfPresent(String.self, forKey: .schemaVersion) ?? "legacy"
+        rulesVersion = try values.decodeIfPresent(String.self, forKey: .rulesVersion) ?? "legacy"
+        version = try values.decode(String.self, forKey: .version)
+        name = try values.decode(String.self, forKey: .name)
+        policy = try values.decode(String.self, forKey: .policy)
+        safeExactTargets = try values.decode([CatalogEntry].self, forKey: .safeExactTargets)
+        forbiddenFragments = try values.decode([String].self, forKey: .forbiddenFragments)
     }
 }
 
@@ -74,6 +93,8 @@ public enum ManifestValidator {
 
     public static func validate(_ manifest: CleanupManifest) -> [String] {
         var errors: [String] = []
+        validateRequiredText(manifest.schemaVersion, name: "Manifest schema version", errors: &errors)
+        validateRequiredText(manifest.rulesVersion, name: "Manifest rules version", errors: &errors)
         validateRequiredText(manifest.version, name: "Manifest version", errors: &errors)
         validateRequiredText(manifest.name, name: "Manifest name", errors: &errors)
         validateRequiredText(manifest.policy, name: "Manifest policy", errors: &errors)
@@ -164,6 +185,8 @@ public enum CleanupCatalog {
     public static var exactSafeEntries: [CatalogEntry] { manifest?.safeExactTargets ?? [] }
     public static var cleanableEntries: [CatalogEntry] { isAvailable ? exactSafeEntries : [] }
     public static var policyVersion: String { manifest?.version ?? "unavailable" }
+    public static var schemaVersion: String { manifest?.schemaVersion ?? "unavailable" }
+    public static var rulesVersion: String { manifest?.rulesVersion ?? "unavailable" }
     public static var manifestChecksum: String { loadResult.checksum }
     public static var forbiddenFragments: [String] { manifest?.forbiddenFragments ?? conservativeForbiddenFragments }
 
@@ -179,6 +202,16 @@ public enum CleanupCatalog {
 
     public static func exactPath(for entry: CatalogEntry, home: String = NSHomeDirectory()) -> String {
         SafetyEngine.lexicalNormalize(URL(fileURLWithPath: home).appendingPathComponent(entry.relativePath).path)
+    }
+
+    public static func provenance(for entry: CatalogEntry) -> RuleProvenance {
+        RuleProvenance(
+            ruleID: entry.id,
+            ruleVersion: rulesVersion,
+            sourceKind: .declarativeManifest,
+            sourceVersion: policyVersion,
+            sourceChecksum: manifestChecksum
+        )
     }
 
     private static func loadManifest() -> ManifestLoadResult {

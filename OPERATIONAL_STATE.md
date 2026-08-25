@@ -19,13 +19,15 @@ DexCleaner is a conservative macOS disk-audit and exact-cache cleanup app. Clean
 - The evidence-driven cleanup campaign is active on `codex/evidence-cleanup-campaign-20260825`.
 - The durable phase ledger and safety contract are in `docs/EVIDENCE_DRIVEN_CLEANUP_CAMPAIGN_PLAN.md`.
 - Phase 0 established the live repository and toolchain baseline in an isolated worktree; the original dirty recovery/audit checkout remains untouched.
-- No cleanup-core authority or manifest semantics changed in Phase 0.
+- Phases 1 and 2 add typed evidence/provenance, report schema `2.0.0`, evidence-bound preview plans, whole-plan preflight, and exact open-file blocking.
+- Cleanup authority remains limited to the same exact bundled manifest paths; no new candidate class is actionable.
 
 ## Verified campaign baseline
 - `make bug-sweep` passed on macOS 26.6.2 using the Apple Swift 6.2 toolchain.
 - Swift Package Manager executed 104 tests with 0 failures and 3 explicitly gated skips.
 - UI contract, Swift test/build, package description, parser, manifest, shell, cancellation, resource, and destructive-authority guards passed.
 - `origin/main` was `c1b68d424e72678e9ecdd34effb68496c2796f11`; the campaign baseline contains six additional committed changes already published on `codex/final-storage-forensics`.
+- After Phases 1 and 2, focused evidence/preflight fixtures passed 8 tests and `make bug-sweep` passed 112 tests with 0 failures and 3 explicitly gated skips.
 
 ## Implemented but still requires native verification
 - Post-change macOS semantic build and app launch.
