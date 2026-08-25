@@ -1,7 +1,7 @@
 # DexCleaner Operational State
 
-Last updated: 2026-08-16
-Baseline: `main@9883f6b20929824c38226e6e7cf0850d1f144d17`
+Last updated: 2026-08-25
+Baseline: `codex/evidence-cleanup-campaign-20260825@27d352c4c7d24f9106498c0dbeb15de72077011e`
 
 ## Purpose
 DexCleaner is a conservative macOS disk-audit and exact-cache cleanup app. Cleanup authority comes only from the bundled validated manifest. The protected journey remains: explicit Scan -> visible Review -> immutable Preview -> exact confirmation -> revalidation -> Finder Trash.
@@ -16,18 +16,16 @@ DexCleaner is a conservative macOS disk-audit and exact-cache cleanup app. Clean
 - Cancellation remains available and propagates to detached work.
 
 ## Current work state
-- Exactly 25 UI/UX improvements are implemented and enumerated in `docs/UI_UX_POLISH_2026-08-16.md`.
-- UI changes are limited to `AppModel`, `ContentView`, `DexCleanerApp`, and supporting QA/docs.
-- Confirmed defects repaired in this pass: stale Preview-expiry presentation; hidden scan diagnostics; silent rejection of invalid optional audit exclusions; stale README branch posture.
-- No cleanup-core authority or manifest semantics were changed.
+- The evidence-driven cleanup campaign is active on `codex/evidence-cleanup-campaign-20260825`.
+- The durable phase ledger and safety contract are in `docs/EVIDENCE_DRIVEN_CLEANUP_CAMPAIGN_PLAN.md`.
+- Phase 0 established the live repository and toolchain baseline in an isolated worktree; the original dirty recovery/audit checkout remains untouched.
+- No cleanup-core authority or manifest semantics changed in Phase 0.
 
-## Verified before delivery
-- Swift 5 parser passes on changed app sources.
-- `scripts/verify_ui_contract.py` passes and proves exactly UIX-01 through UIX-25 are ledgered with required source contracts.
-- Changed app sources contain no permanent-deletion call, background-scan/login implementation token, default Return-key destructive shortcut, added network API, or debug `print`.
-- Original AppModel user-action functions remain present.
-- Candidate-file whitespace/conflict-marker and obvious credential-pattern scans pass.
-- Starting repository CI baseline was green on Linux core and macOS app jobs.
+## Verified campaign baseline
+- `make bug-sweep` passed on macOS 26.6.2 using the Apple Swift 6.2 toolchain.
+- Swift Package Manager executed 104 tests with 0 failures and 3 explicitly gated skips.
+- UI contract, Swift test/build, package description, parser, manifest, shell, cancellation, resource, and destructive-authority guards passed.
+- `origin/main` was `c1b68d424e72678e9ecdd34effb68496c2796f11`; the campaign baseline contains six additional committed changes already published on `codex/final-storage-forensics`.
 
 ## Implemented but still requires native verification
 - Post-change macOS semantic build and app launch.
@@ -37,4 +35,4 @@ DexCleaner is a conservative macOS disk-audit and exact-cache cleanup app. Clean
 - The pre-existing residual path-to-Trash race remains a platform boundary.
 
 ## Git delivery rule
-The current task explicitly authorizes a single fast-forward commit to `main`. Before ref update, the remote head must still equal the baseline above. Force push, history rewrite, reset/clean, and unrelated file mutation are prohibited.
+Commit and push each validated phase to `codex/evidence-cleanup-campaign-20260825` with explicit staging. Do not force push, rewrite history, reset/clean, or mutate unrelated recovery/audit material. Integrate only after the complete campaign is green and the final branch-base diff is reviewed; use the repository's ordinary pull-request or fast-forward path.
