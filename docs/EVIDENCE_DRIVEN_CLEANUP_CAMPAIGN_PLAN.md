@@ -24,8 +24,8 @@ DexCleaner will not add generic permanent deletion, Trash emptying, process kill
 - [x] Phase 0: preflight, baseline, isolated worktree/branch, durable plan, operational-state correction
 - [x] Phase 1: evidence core, rule provenance, versioned JSON/Markdown reporting
 - [x] Phase 2: plan-wide preflight, typed stale reasons, exact open/active-owner blocking
-- [ ] Phase 3: read-only project-artifact discovery with bounded traversal and cancellation
-- [ ] Phase 4: narrowly proven Node `node_modules` and Rust `target` cleanup eligibility
+- [x] Phase 3: read-only project-artifact discovery with bounded traversal and cancellation
+- [x] Phase 4: narrowly proven Node `node_modules` and Rust `target` cleanup eligibility
 - [ ] Phase 5: action receipts, truthful accounting, progress, freshness, safe retry, re-rank, STOP logic
 - [ ] Phase 6: dedicated Homebrew staging adapter
 - [ ] Phase 7: managed system, FileProvider, and cloud protection adapter
@@ -52,6 +52,14 @@ The evidence core now records typed ownership, protection, rebuildability, risk,
 Cleanup now runs a typed whole-plan preflight before the first mutation. It validates plan age, unique canonical paths, selection and evidence signatures, manifest state, every candidate identity/evidence bundle, and an exact path/subtree open-file check. Detector failure is a blocking unknown. Immediate identity and open-file revalidation remains directly before each Finder Trash call.
 
 Focused evidence/preflight fixtures passed 8 of 8. The repository-wide gate then passed 112 tests with 0 failures and 3 intentionally gated skips. The stale-fourth-item fixture proves the first item is not moved; open-after-preview and detector-unavailable fixtures fail closed.
+
+## Phase 3-4 evidence
+
+`ProjectArtifactAnalyzer` performs bounded, cancellable discovery without traversing `.git`, `.hg`, `.svn`, hidden metadata, or artifact contents during discovery. It records complete/partial/cancelled coverage and separately bounds measurement entries. Matching names without valid workspace authority remain review-only; symlinks and incomplete measurements fail closed.
+
+The dedicated project adapter promotes only default Node `node_modules` and Rust `target` directories inside `~/Projects`, `~/Developer`, or `~/src`. Promotion requires a valid adjacent `package.json` or `Cargo.toml`, a containing Git repository, exact ignored and untracked state, complete measurement, physical identity, no symlink component, dedicated adapter provenance, immutable preview, whole-plan preflight, and immediate revalidation. Generic `build` and `dist` findings remain review-only; tracked findings are protected.
+
+Six focused fixtures cover Node, Rust, monorepo authority, tracked generic build output, missing workspace authority, symlink refusal, hidden-metadata pruning, incomplete measurement, cancellation, preview, and preflight. The repository-wide gate passed 118 tests with 0 failures and 3 intentionally gated skips.
 
 ## Known platform boundary
 

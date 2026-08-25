@@ -131,6 +131,15 @@ public struct DiskScanner {
         return item
     }
 
+    public func projectArtifactScan(
+        root: URL,
+        allowCleanup: Bool = false,
+        limits: ProjectArtifactScanLimits = ProjectArtifactScanLimits(),
+        isCancelled: @Sendable () -> Bool = { false }
+    ) -> ProjectArtifactScanResult {
+        ProjectArtifactAnalyzer(home: home, limits: limits).scan(root: root, allowCleanup: allowCleanup, isCancelled: isCancelled)
+    }
+
     public func diskStatus(issues: inout [ScanIssue]) -> DiskStatus {
         StorageCapacityProvider.measure()
     }

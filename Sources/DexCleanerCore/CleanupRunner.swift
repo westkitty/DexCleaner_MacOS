@@ -69,7 +69,7 @@ public struct CleanupRunner {
                 results.append(CleanupResult(path: item.path, status: "Blocked", detail: "Manifest identity or filesystem identity is unavailable."))
                 continue
             }
-            guard let evidence = CandidateEvidenceFactory.exactManifest(item: item, identity: identity, home: home), evidence.isActionable else {
+            guard let evidence = CandidateEvidenceFactory.forCandidate(item: item, identity: identity, home: home), evidence.isActionable else {
                 results.append(CleanupResult(path: item.path, status: "Blocked", detail: "Complete cleanup evidence could not be established."))
                 continue
             }

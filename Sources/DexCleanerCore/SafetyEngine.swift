@@ -31,6 +31,12 @@ public enum SafetyEngine {
         ]
         guard !broadRoots.contains(path) else { return SafetyDecision(allowed: false, reason: "Refusing broad root path.") }
 
+        if item.evidence?.provenance.sourceKind == .dedicatedAdapter {
+            guard FileManager.default.fileExists(atPath: path) else { return SafetyDecision(allowed: false, reason: "Target no longer exists.") }
+            guard FileIdentity.capture(path: path) != nil else { return SafetyDecision(allowed: false, reason: "Target identity could not be read.") }
+            return ProjectArtifactSafetyAdapter.decision(for: item, home: homePath)
+        }
+
         for fragment in CleanupCatalog.forbiddenFragments where path.localizedCaseInsensitiveContains(fragment) {
             return SafetyDecision(allowed: false, reason: "Protected state, session, cloud, project, or user-data path: \(fragment)")
         }
@@ -52,6 +58,14 @@ public enum SafetyEngine {
     public static func decision(for planItem: CleanupPlanItem, home: String = NSHomeDirectory()) -> SafetyDecision {
         guard planItem.risk == .safe, planItem.action == .moveToTrash else {
             return SafetyDecision(allowed: false, reason: "Previewed target no longer carries Safe Trash-only authority.")
+        }
+        if planItem.evidence?.provenance.sourceKind == .dedicatedAdapter {
+            let adapter = ProjectArtifactSafetyAdapter.decision(for: planItem, home: home)
+            guard adapter.allowed else { return adapter }
+            guard let current = FileIdentity.capture(path: planItem.path), current == planItem.identity else {
+                return SafetyDecision(allowed: false, reason: "Target identity changed after preview. Run a new scan and preview.")
+            }
+            return SafetyDecision(allowed: true, reason: "Previewed project evidence, identity, and dedicated adapter authority still match.")
         }
         guard let entry = CleanupCatalog.entry(forManifestID: planItem.manifestID) else {
             return SafetyDecision(allowed: false, reason: "Manifest entry no longer exists.")

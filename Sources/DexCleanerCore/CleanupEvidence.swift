@@ -21,6 +21,7 @@ public enum CandidateEvidenceKind: String, Codable, Hashable, Sendable {
     case rebuildability = "Rebuildability"
     case protection = "Protection"
     case activeUse = "Active use"
+    case measurement = "Measurement"
 }
 
 public enum OwnershipDecision: String, Codable, Hashable, Sendable {
@@ -128,16 +129,22 @@ public struct CandidateEvidenceBundle: Codable, Hashable, Sendable {
     }
 
     public var isActionable: Bool {
-        !redacted
-            && schemaVersion == EvidenceSchema.currentVersion
-            && ownership == .userScoped
-            && protection == .actionable
-            && rebuildability == .proven
-            && risk == .safe
-            && !records.isEmpty
-            && records.allSatisfy { $0.completeness == .complete }
-            && provenance.isComplete
-            && fingerprint == calculatedFingerprint
+        actionabilityProblems.isEmpty
+    }
+
+    public var actionabilityProblems: [String] {
+        var problems: [String] = []
+        if redacted { problems.append("evidence is redacted") }
+        if schemaVersion != EvidenceSchema.currentVersion { problems.append("evidence schema is unsupported") }
+        if ownership != .userScoped { problems.append("ownership is not user-scoped") }
+        if protection != .actionable { problems.append("protection decision is not actionable") }
+        if rebuildability != .proven { problems.append("rebuildability is not proven") }
+        if risk != .safe { problems.append("risk is not Safe") }
+        if records.isEmpty { problems.append("evidence records are missing") }
+        if records.contains(where: { $0.completeness != .complete }) { problems.append("evidence is incomplete") }
+        if !provenance.isComplete { problems.append("rule provenance is incomplete") }
+        if fingerprint != calculatedFingerprint { problems.append("evidence fingerprint does not match") }
+        return problems
     }
 
     public var calculatedFingerprint: String {
@@ -182,6 +189,23 @@ public struct CandidateEvidenceBundle: Codable, Hashable, Sendable {
 }
 
 public enum CandidateEvidenceFactory {
+    public static func forCandidate(
+        item: ScanItem,
+        identity: FileIdentity,
+        home: String,
+        observedAt: Date = Date()
+    ) -> CandidateEvidenceBundle? {
+        if let evidence = item.evidence,
+           evidence.provenance.sourceKind == .dedicatedAdapter,
+           evidence.identity == identity,
+           evidence.candidateID == item.manifestID,
+           SafetyEngine.lexicalNormalize(evidence.path) == SafetyEngine.lexicalNormalize(item.path),
+           evidence.isActionable {
+            return evidence
+        }
+        return exactManifest(item: item, identity: identity, home: home, observedAt: observedAt)
+    }
+
     public static func exactManifest(
         item: ScanItem,
         identity: FileIdentity,
