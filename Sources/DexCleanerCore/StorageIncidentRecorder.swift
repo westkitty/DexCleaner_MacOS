@@ -629,7 +629,10 @@ private actor FSEventsReplayWorker {
     }
 }
 
-@MainActor public final class StorageIncidentRecorder: ObservableObject {
+#if !os(Linux)
+@MainActor
+#endif
+public final class StorageIncidentRecorder: ObservableObject {
     @Published public private(set) var status: RecorderStatus = .armed
     @Published public private(set) var activeIncident: StorageIncident?
     @Published public private(set) var incidents: [StorageIncident] = []

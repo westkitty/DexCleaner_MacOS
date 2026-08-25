@@ -854,7 +854,9 @@ private final class FakeStreamHandle: FSEventsStreamHandle, @unchecked Sendable 
     func release() { probe.record("release") }
 }
 
+#if !os(Linux)
 @MainActor
+#endif
 final class FSEventsStreamFactoryTests: XCTestCase {
     private func home() throws -> URL {
         let value = FileManager.default.temporaryDirectory.appendingPathComponent("DexCleanerStream-\(UUID().uuidString)")
@@ -1092,7 +1094,9 @@ final class FSEventsStreamFactoryTests: XCTestCase {
     }
 }
 
+#if !os(Linux)
 @MainActor
+#endif
 private struct ReplayResponsivenessHarness {
     let home: URL
     let recorder: StorageIncidentRecorder
@@ -1146,7 +1150,9 @@ private struct ReplayResponsivenessHarness {
     }
 }
 
+#if !os(Linux)
 @MainActor
+#endif
 final class HangReproductionTests: XCTestCase {
     func testCopiedFixtureCarriesTheValidHeavyStateThatTriggeredTheHang() throws {
         guard let fixtureHome = ProcessInfo.processInfo.environment["DEXCLEANER_SUPPORT_FIXTURE_HOME"] else {
@@ -1163,7 +1169,9 @@ final class HangReproductionTests: XCTestCase {
     }
 }
 
+#if !os(Linux)
 @MainActor
+#endif
 final class MainThreadResponsivenessTests: XCTestCase {
     func testRecorderCallbackReturnsToMainActorWithin250Milliseconds() async throws {
         let harness = try ReplayResponsivenessHarness.make()
@@ -1179,7 +1187,9 @@ final class MainThreadResponsivenessTests: XCTestCase {
     }
 }
 
+#if !os(Linux)
 @MainActor
+#endif
 final class MenuBarResponsivenessTests: XCTestCase {
     func testMenuCommandHeartbeatIsServicedWithinOneSecondDuringReplay() async throws {
         let harness = try ReplayResponsivenessHarness.make()
@@ -1194,7 +1204,9 @@ final class MenuBarResponsivenessTests: XCTestCase {
     }
 }
 
+#if !os(Linux)
 @MainActor
+#endif
 final class WindowResponsivenessTests: XCTestCase {
     func testWindowAndQuitCommandHeartbeatsRemainServiceableDuringReplay() async throws {
         let harness = try ReplayResponsivenessHarness.make()
@@ -1210,7 +1222,9 @@ final class WindowResponsivenessTests: XCTestCase {
     }
 }
 
+#if !os(Linux)
 @MainActor
+#endif
 final class FSEventsReplayStressTests: XCTestCase {
     func testDuplicateHeavyReplayIsBoundedWithoutCheckpointAmplification() async throws {
         let harness = try ReplayResponsivenessHarness.make()
@@ -1227,7 +1241,9 @@ final class FSEventsReplayStressTests: XCTestCase {
     }
 }
 
+#if !os(Linux)
 @MainActor
+#endif
 final class ActivityCenterCoalescingTests: XCTestCase {
     func testReplayUpdatesOneSessionEntryWithoutDisplacingExistingHistory() async throws {
         let existing = (0..<99).map {
@@ -1247,7 +1263,9 @@ final class ActivityCenterCoalescingTests: XCTestCase {
     }
 }
 
+#if !os(Linux)
 @MainActor
+#endif
 final class SupportStateCompatibilityTests: XCTestCase {
     func testEmptyAndMalformedActivityStateLoadWithoutBlockingRecovery() throws {
         let home = FileManager.default.temporaryDirectory.appendingPathComponent("DexCleanerSupportCompatibility-\(UUID().uuidString)")
@@ -1261,7 +1279,9 @@ final class SupportStateCompatibilityTests: XCTestCase {
     }
 }
 
+#if !os(Linux)
 @MainActor
+#endif
 final class FSEventsRecoveryTests: XCTestCase {
     private func temporaryHome() throws -> URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("DexCleanerRecovery-\(UUID().uuidString)")
@@ -1721,7 +1741,9 @@ final class EmergencyReserveTests: XCTestCase {
     }
 }
 
+#if !os(Linux)
 @MainActor
+#endif
 final class DiagnosticCancellationTests: XCTestCase {
     private func home() throws -> URL {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("DexCleanerCancel-\(UUID().uuidString)")
