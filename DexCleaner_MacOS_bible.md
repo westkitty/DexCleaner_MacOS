@@ -202,3 +202,15 @@ The verified 1.0.0 rollback bundle remains available.  See
 Do not run live cleanup without a newly approved, explicitly reviewed batch.
 The manual recording completed the visible menu-bar check; desktop accessibility
 still cannot enumerate status-bar extras for a duplicate automated click-through.
+
+## 1.3.3 DEX//MAINT Storage Guardian integration — 2026-09-30
+
+- Pre-change repository baseline: `main` matched `origin/main` at `ff24d015` with no unrelated local changes.
+- DEX//MAINT side: `westkitty/DEX-REACH` commit `3345b05` publishes kernel 2.3.1 and a schema-versioned, read-only `status --target macbook` contract.
+- DexCleaner adds `DEXMaintBridge` as a thin client only. It reads `~/Library/LaunchAgents/com.stinkyweasel.dexmaint.watch.plist`, validates the expected MacBook `watch --target macbook --apply-auto` ProgramArguments and exact executable/kernel paths, obtains status from that kernel, and requests an existing watcher run with `launchctl kickstart`. It has no DEX//MAINT candidate-discovery, policy, or direct deletion authority.
+- Menu-bar UI exposes one `Run Storage Guardian Now` control plus DEX//MAINT pressure, immediately-free bytes, latest measured reclaim, protected/blocked count, running state, and fail-closed error text. Existing Quick Scan, Review, immutable Preview, confirmation, revalidation, and Finder Trash semantics are unchanged.
+- Focused bridge tests passed 3/3. Full `swift test --scratch-path .build-final` passed 136 tests with 0 failures and 3 intentionally gated skips. `make bug-sweep` passed the same suite plus UI/source contracts, build, parser, manifest, shell, resource, cancellation, and destructive-authority guards.
+- Release build completed successfully. The verified candidate reported version 1.3.3 and passed strict signing.
+- Installation replaced 1.3.2 reversibly: the prior signed bundle is preserved at `/Users/andrew/Library/Application Support/DexCleaner/Backups/20260930T091855/DexCleaner.app`; installed `/Applications/DexCleaner.app` is version 1.3.3, executable SHA-256 `a896610c6cb0b37a72a73c43d6b4a73a20e4b23f75a72a20587f0b912ac08f0b`, and exactly one installed process was observed after relaunch. Both installed and rollback bundles passed strict signature verification.
+- Runtime integration proof used the exact ProgramArguments from the installed LaunchAgent. The configured kernel returned schema v1 status, kernel 2.3.1, policy 2.3.0, watcher idle, immediately-free `7608528896` bytes, available-for-work `8601313280` bytes, pressure `CRITICAL`, and latest run `maint-macbook-20260930T115358Z-96c1c056` with measured reclaim `345309184` bytes. That latest run predates the 1.3.3 installation; installation verification did not manually trigger a cleanup.
+- Installed-binary string inspection confirmed `Run Storage Guardian Now`, initial Guardian status text, and the policy-governed launch text are present. Direct automated clicking of the menu-bar item remains unverified; production bridge semantics are regression-covered and the live status dependency is proven.

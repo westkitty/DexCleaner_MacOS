@@ -187,3 +187,13 @@ The installed application is signed, running, and safe to use for review and pre
 - No release build, package, replacement, or relaunch occurred. Installed `/Applications/DexCleaner.app` remains signed version 1.3.0 with executable SHA-256 `e802d786fa0ec068ba50eeee493a1854ad0e3dbf4b8f2695d1bf12239e8a9aa6`; exactly one installed process was running at final inspection.
 - The 1.2.2 rollback at `/Users/andrew/Library/Application Support/DexCleaner/Backups/20260730T000000Z/DexCleaner.app` and 1.0.0 rollback at `/Users/andrew/Library/Application Support/DexCleaner/Backups/20260728T003957Z/DexCleaner.app` remain strictly signature-valid.
 - No live cleanup, cloud mutation, broad disk scan, privileged trace, live reserve creation, user-data change, project deletion, unauthorized file movement, or Finder Trash action occurred.
+
+## 1.3.3 DEX//MAINT Storage Guardian integration — 2026-09-30
+
+- `make bug-sweep` passed after the integration: 136 tests, 0 failures, 3 intentionally gated skips, plus UI/source contracts, debug build, parser, manifest, shell, resource, cancellation, and destructive-authority guards.
+- The release candidate built as version 1.3.3 and passed `plutil` and `codesign --verify --deep --strict`.
+- Installed `/Applications/DexCleaner.app` is version 1.3.3 with executable SHA-256 `a896610c6cb0b37a72a73c43d6b4a73a20e4b23f75a72a20587f0b912ac08f0b`; exactly one installed process was observed after relaunch.
+- The replaced signed 1.3.2 bundle is preserved at `/Users/andrew/Library/Application Support/DexCleaner/Backups/20260930T091855/DexCleaner.app` and passes strict signature verification.
+- The integration is intentionally thin: the app validates and consumes the installed DEX//MAINT LaunchAgent/kernel contract, requests runs through `launchctl kickstart`, and renders status. It does not implement DEX//MAINT cleanup policy or direct filesystem cleanup.
+- Read-only runtime proof through the LaunchAgent-configured Python/kernel returned schema version 1, kernel 2.3.1, policy 2.3.0, and watcher idle. The latest recorded DEX//MAINT run predates this installation; no manual Storage Guardian cleanup was triggered during install/verification.
+- Direct automated clicking of the installed menu-bar action was not obtained; its bridge is covered by focused tests and the installed binary contains the expected Guardian action/status strings.

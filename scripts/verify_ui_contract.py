@@ -66,11 +66,17 @@ required_model = [
     "selectionDidChange",
     "reportPlan(for:",
     "canReveal(_ item:",
+    "runStorageGuardianNow",
+    "refreshDexMaintStatus",
 ]
 required_app = [
     "scanFreshnessText",
     "Preview stale or expired",
     "Cancel Active Operation",
+    "Storage Guardian",
+    "model.dexMaintButtonTitle",
+    "model.runStorageGuardianNow()",
+    "model.refreshDexMaintStatus()",
 ]
 required_cache = [
     "guard age >= 0, age <= maximumAge else { return nil }",

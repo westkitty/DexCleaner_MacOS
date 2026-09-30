@@ -113,10 +113,47 @@ struct DexCleanerApp: App {
                 Divider()
                 menuHistory
                 Divider()
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Label("Storage Guardian", systemImage: "shield.checkered")
+                            .font(.caption.weight(.semibold))
+                        Spacer()
+                        Text(model.dexMaintPressureText)
+                            .font(.caption.monospacedDigit().weight(.semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                    Button {
+                        model.runStorageGuardianNow()
+                    } label: {
+                        HStack {
+                            if model.isDexMaintWorking || model.dexMaintStatus?.watcherRunning == true {
+                                ProgressView().controlSize(.small)
+                            }
+                            Text(model.dexMaintButtonTitle)
+                            Spacer()
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(model.isWorking || model.isDexMaintWorking || model.dexMaintStatus?.watcherRunning == true)
+                    .accessibilityHint("Runs the installed DEX MAINT Storage Guardian using its existing policy and safety authority.")
+
+                    Text(model.dexMaintStatusText)
+                        .font(.caption2)
+                        .foregroundStyle(model.dexMaintLastError == nil ? Color.secondary : Color.red)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 3) {
+                        menuMetric("Guardian free", model.dexMaintImmediatelyFreeText)
+                        menuMetric("Last Guardian reclaim", model.dexMaintLastReclaimText)
+                        menuMetric("Protected / blocked", model.dexMaintProtectedText)
+                    }
+                }
+                Divider()
                 HStack {
-                    Button("Refresh Capacity") { model.refreshCapacity() }.disabled(model.isWorking).dexInteractive()
-                    Button("Quick Scan") { model.scan() }.disabled(model.isWorking).dexInteractive()
-                    Button("Investigate Now") { model.investigateNow() }.disabled(model.isWorking).dexInteractive()
+                    Button("Refresh Capacity") { model.refreshCapacity() }.disabled(model.isWorking || model.isDexMaintWorking).dexInteractive()
+                    Button("Quick Scan") { model.scan() }.disabled(model.isWorking || model.isDexMaintWorking).dexInteractive()
+                    Button("Investigate Now") { model.investigateNow() }.disabled(model.isWorking || model.isDexMaintWorking).dexInteractive()
                 }
                 if model.isWorking {
                     Button("Cancel Active Operation") { model.cancel() }.dexInteractive()
@@ -156,7 +193,7 @@ struct DexCleanerApp: App {
             }
             .padding(12)
             .frame(width: 420)
-            .onAppear { model.refreshCapacityForPresentation(); model.refreshHistory(range: .day) }
+            .onAppear { model.refreshCapacityForPresentation(); model.refreshHistory(range: .day); model.refreshDexMaintStatus() }
         } label: {
             Text(model.menuBarCapacityText)
                 .accessibilityLabel("DexCleaner, \(model.availableForWorkText) available for work, \(model.measurementStatusText)")

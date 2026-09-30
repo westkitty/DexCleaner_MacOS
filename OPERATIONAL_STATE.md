@@ -1,6 +1,6 @@
 # DexCleaner Operational State
 
-Last updated: 2026-08-25
+Last updated: 2026-09-30
 Baseline: `codex/evidence-cleanup-campaign-20260825@27d352c4c7d24f9106498c0dbeb15de72077011e`
 
 ## Purpose
@@ -16,6 +16,7 @@ DexCleaner is a conservative macOS disk-audit and evidence-driven cleanup app. C
 - Cancellation remains available and propagates to detached work.
 
 ## Current work state
+- Installed 1.3.3 on the primary Mac adds a thin DEX//MAINT Storage Guardian menu client. It resolves the canonical kernel from the installed `com.stinkyweasel.dexmaint.watch` LaunchAgent, consumes only schema-versioned read-only status, and requests runs through `launchctl kickstart`; it does not duplicate DEX//MAINT cleanup policy or filesystem mutation authority.
 - The evidence-driven cleanup campaign is implementation-complete on `codex/evidence-cleanup-campaign-20260825`.
 - The durable phase ledger and safety contract are in `docs/EVIDENCE_DRIVEN_CLEANUP_CAMPAIGN_PLAN.md`.
 - Phase 0 established the live repository and toolchain baseline in an isolated worktree; the original dirty recovery/audit checkout remains untouched.
@@ -26,6 +27,15 @@ DexCleaner is a conservative macOS disk-audit and evidence-driven cleanup app. C
 - Phase 11 adds an explicit guided campaign UI that binds scan/campaign identity through Preview, writes a receipt, re-audits/re-ranks, and exposes domain coverage plus STOP reasoning while reusing the existing confirmation and Finder Trash path.
 - Phase 12 completed adversarial hardening, cross-platform continuous-integration portability, production UI certification, release-mode validation, app-bundle verification, and current documentation.
 - Generic `build`/`dist`, tracked artifacts, symlinks, incomplete measurements, missing workspace authority, and unavailable Git state remain non-actionable.
+
+## Verified 1.3.3 integration checkpoint
+- Pre-change `main` and `origin/main` matched at `ff24d015`; unrelated working-tree changes were absent.
+- DEX//MAINT's corresponding read-only status contract is published in `westkitty/DEX-REACH` commit `3345b05` as kernel version 2.3.1.
+- `make bug-sweep` passed: UI contract, 136 Swift tests with 0 failures and 3 intentionally gated skips, debug build, package description, parser, manifest, shell, cancellation, resource, and destructive-authority guards.
+- The 1.3.3 release app bundle built successfully, passed property-list validation and strict code-sign verification, and was installed at `/Applications/DexCleaner.app`. Installed executable SHA-256: `a896610c6cb0b37a72a73c43d6b4a73a20e4b23f75a72a20587f0b912ac08f0b`. Exactly one installed process was observed after relaunch.
+- Signed 1.3.2 was preserved at `/Users/andrew/Library/Application Support/DexCleaner/Backups/20260930T091855/DexCleaner.app` and passes strict signature verification.
+- The installed binary contains the Storage Guardian menu/action strings. The exact Python/kernel paths configured by the installed LaunchAgent returned schema v1 status with kernel 2.3.1 and the watcher idle. No manual Storage Guardian cleanup run was triggered by this installation/verification.
+- Direct automated clicking of the installed menu-bar action remains unverified; bridge behavior is covered by 3 focused unit tests and the full suite.
 
 ## Verified campaign baseline
 - `make bug-sweep` passed on macOS 26.6.2 using the Apple Swift 6.2 toolchain.

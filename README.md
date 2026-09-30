@@ -31,6 +31,12 @@ Still required on actual interactive macOS hardware before public release:
 
 No claim of public release readiness exists until those checks pass.
 
+## 1.3.3 Storage Guardian integration
+
+DexCleaner 1.3.3 adds one bounded menu-bar action for the existing DEX//MAINT Storage Guardian. DexCleaner does **not** implement a second cleanup engine. It reads the installed `com.stinkyweasel.dexmaint.watch` LaunchAgent, validates its exact MacBook watcher arguments, calls the configured DEX//MAINT kernel's schema-versioned read-only `status` command, and uses `launchctl kickstart` only to request that the already-installed watcher run.
+
+The menu shows current DEX//MAINT pressure, immediately-free space, the latest measured reclaim, protected/blocked count, and running/error state. Missing or unexpected LaunchAgent configuration, missing executable/kernel paths, invalid status JSON, or an unexpected schema/target fail closed. DexCleaner's existing Scan -> Review -> Preview -> Finder Trash workflow and cleanup authority are unchanged.
+
 ## Safety architecture
 
 DexCleaner enforces these invariants:

@@ -137,8 +137,13 @@ final class AppModel: ObservableObject {
     @Published var emergencyReserveActivity: EmergencyReserveStatus?
     @Published var deepTraceEvidence: DeepTraceEvidence?
     @Published var incidentActionText = ""
+    @Published var dexMaintStatus: DEXMaintStatus?
+    @Published var isDexMaintWorking = false
+    @Published var dexMaintStatusText = "Storage Guardian status not loaded."
+    @Published var dexMaintLastError: String?
 
     private var activeTask: Task<Void, Never>?
+    private var dexMaintTask: Task<Void, Never>?
     private var diagnosticCancellation = DiagnosticCancellationToken()
     private var freshnessExpiryTask: Task<Void, Never>?
     private var periodicCapacityTimer: Timer?
@@ -154,6 +159,7 @@ final class AppModel: ObservableObject {
     private let operationCoordinator = OperationCoordinator()
     private let incidentRecorder: StorageIncidentRecorder
     private let certificationMode: Bool
+    private let dexMaintBridge: DEXMaintBridge
 
     var allCleanableItems: [ScanItem] {
         sorted(items.filter { $0.action == .moveToTrash })
@@ -317,8 +323,13 @@ final class AppModel: ObservableObject {
         return date.timeIntervalSince(measuredAt) > 15 * 60
     }
 
-    init(performStartupReconciliation: Bool = true, certificationMode: Bool = false) {
+    init(
+        performStartupReconciliation: Bool = true,
+        certificationMode: Bool = false,
+        dexMaintBridge: DEXMaintBridge = .production
+    ) {
         self.certificationMode = certificationMode
+        self.dexMaintBridge = dexMaintBridge
         if certificationMode {
             let isolatedHome = FileManager.default.temporaryDirectory
                 .appendingPathComponent("DexCleaner-UICertification-\(ProcessInfo.processInfo.processIdentifier)")
@@ -375,6 +386,94 @@ final class AppModel: ObservableObject {
             self.incidentRecorder.start(sample: self.diskStatus)
             self.synchronizeRecorder()
         }
+    }
+
+    var dexMaintPressureText: String { dexMaintStatus?.pressure ?? "Unavailable" }
+    var dexMaintImmediatelyFreeText: String { formatted(dexMaintStatus?.immediatelyFreeBytes) }
+    var dexMaintLastReclaimText: String {
+        guard let bytes = dexMaintStatus?.lastRun?.measuredReclaimBytes else { return "No receipt yet" }
+        if bytes <= 0 { return bytes == 0 ? "No reclaim this run" : "Concurrent writes exceeded reclaim" }
+        return ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+    }
+    var dexMaintProtectedText: String {
+        guard let count = dexMaintStatus?.lastRun?.protectedOrBlockedCount else { return "Unavailable" }
+        return "\(count)"
+    }
+    var dexMaintButtonTitle: String {
+        if isDexMaintWorking { return "Storage Guardian Running…" }
+        if dexMaintStatus?.watcherRunning == true { return "Storage Guardian Running…" }
+        return "Run Storage Guardian Now"
+    }
+
+    func refreshDexMaintStatus() {
+        guard !certificationMode, !isDexMaintWorking else { return }
+        let bridge = dexMaintBridge
+        Task { @MainActor [weak self] in
+            let outcome = await Task.detached(priority: .utility) { () -> (DEXMaintStatus?, String?) in
+                do { return (try bridge.status(), nil) }
+                catch { return (nil, error.localizedDescription) }
+            }.value
+            guard let self else { return }
+            if let status = outcome.0 {
+                self.dexMaintStatus = status
+                self.dexMaintLastError = nil
+                self.dexMaintStatusText = status.watcherRunning
+                    ? "Storage Guardian is already running."
+                    : self.guardianCompletionText(status)
+            } else if let error = outcome.1 {
+                self.dexMaintLastError = error
+                self.dexMaintStatusText = error
+            }
+        }
+    }
+
+    func runStorageGuardianNow() {
+        guard !certificationMode, !isWorking, !isDexMaintWorking, operationCoordinator.begin() else {
+            dexMaintStatusText = "Another DexCleaner or Storage Guardian operation is active."
+            return
+        }
+        isDexMaintWorking = true
+        dexMaintLastError = nil
+        dexMaintStatusText = "Starting the policy-governed Storage Guardian…"
+        let bridge = dexMaintBridge
+        let coordinator = operationCoordinator
+
+        dexMaintTask = Task { @MainActor [weak self] in
+            let outcome = await Task.detached(priority: .userInitiated) { () -> (DEXMaintStatus?, String?) in
+                do { return (try bridge.runNowAndWait(), nil) }
+                catch { return (nil, error.localizedDescription) }
+            }.value
+            coordinator.end()
+            guard let self else { return }
+            self.isDexMaintWorking = false
+            self.dexMaintTask = nil
+
+            if let status = outcome.0 {
+                self.dexMaintStatus = status
+                self.dexMaintLastError = nil
+                self.dexMaintStatusText = self.guardianCompletionText(status)
+                self.refreshCapacity(trigger: .manualRefresh)
+            } else {
+                let error = outcome.1 ?? "Storage Guardian failed without a readable error."
+                self.dexMaintLastError = error
+                self.dexMaintStatusText = error
+            }
+        }
+    }
+
+    private func guardianCompletionText(_ status: DEXMaintStatus) -> String {
+        if status.watcherRunning { return "Storage Guardian is running." }
+        guard let run = status.lastRun else {
+            return "Storage Guardian is ready; no completed run is recorded yet."
+        }
+        if run.actionCount == 0 {
+            return "Safe maintenance complete. No eligible cleanup was needed. Pressure: \(status.pressure)."
+        }
+        if run.measuredReclaimBytes > 0 {
+            let amount = ByteCountFormatter.string(fromByteCount: run.measuredReclaimBytes, countStyle: .file)
+            return "Safe maintenance complete. Reclaimed \(amount). Pressure: \(status.pressure)."
+        }
+        return "Safe maintenance complete. Concurrent disk activity obscured net reclaim. Pressure: \(status.pressure)."
     }
 
     func refreshCapacity(trigger: CapacityTrigger = .manualRefresh) {

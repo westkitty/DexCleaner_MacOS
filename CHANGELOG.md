@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.3.3 Storage Guardian menu integration — 2026-09-30
+
+- Add a one-button menu-bar action that triggers the installed DEX//MAINT LaunchAgent instead of duplicating cleanup authority.
+- Resolve the canonical DEX//MAINT kernel from the installed LaunchAgent and consume its bounded JSON status contract.
+- Surface current pressure, immediate free space, last measured reclaim, protected/blocked count, running state, and fail-closed integration errors.
+- Preserve DexCleaner’s existing Scan → Review → Preview → Finder Trash workflow unchanged.
+
 ## 1.0.0 safety refactor — unreleased
 
 ### Cleanup authority changes
